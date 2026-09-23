@@ -7,7 +7,6 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.util.Log
-import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -51,7 +50,6 @@ private val AppBlack = Color(0xFF080808)
 private val PanelLevel1 = Color(0xFF234057)
 private val PanelLevel2 = Color(0xFF1D3548)
 private val PanelLevel3 = Color(0xFF172A39)
-private val PanelRaised = Color(0xFF294A63)
 private val BorderLevel1 = Color(0xFF2B4D66)
 private val BorderLevel2 = Color(0xFF243F54)
 private val BorderLevel3 = Color(0xFF1D3445)
@@ -71,7 +69,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var nfcHelper: NfcHelper
     private lateinit var db: AppDatabase
     private lateinit var vibrator: Vibrator
-
     private val activeProjectName = mutableStateOf<String?>(null)
     private val activeProjectId = mutableStateOf<Long?>(null)
     private val activeSessionStart = mutableStateOf<Long?>(null)
@@ -85,15 +82,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Keep the Android status/navigation bars black. Do not access
+        // WindowInsetsController here: on some Android builds DecorView is
+        // not initialized yet and that causes an app-launch crash.
         window.statusBarColor = AndroidColor.BLACK
         window.navigationBarColor = AndroidColor.BLACK
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.insetsController?.setSystemBarsAppearance(
-                0,
-                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
-            )
-        }
+
         nfcHelper = NfcHelper(this)
         db = AppDatabase.getInstance(this)
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
@@ -323,9 +319,7 @@ private fun HomeScreen(
                     onClick = { onProjectSelected(summary.project.id) }
                 )
             }
-            item {
-                DeviceButton(text = "+ ADD PROJECT", onClick = { showCreateDialog = true })
-            }
+            item { DeviceButton(text = "+ ADD PROJECT", onClick = { showCreateDialog = true }) }
         }
     }
 
