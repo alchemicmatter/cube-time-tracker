@@ -41,23 +41,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private val DeviceBackground = Color(0xFF090C0A)
-private val DevicePanel = Color(0xFF183B32)
-private val DevicePanelRaised = Color(0xFF204B3D)
-private val DeviceBorder = Color(0xFF112E26)
-private val DeviceMint = Color(0xFF71C596)
-private val DeviceText = Color(0xFFF0DEC7)
+private val DeviceBackground = Color(0xFF0D1720)
+private val DevicePanel = Color(0xFF234057)
+private val DevicePanelRaised = Color(0xFF2C506B)
+private val DeviceBorder = Color(0xFF3B6079)
+private val DevicePrimary = Color(0xFF83B8D7)
+private val DevicePrimaryMuted = Color(0xFF5F91B0)
+private val DeviceText = Color(0xFFF0E6D9)
 private val DeviceOrange = Color(0xFFFFA876)
 private val DeviceRed = Color(0xFFFF705F)
-private val DeviceMuted = Color(0xFFA5B7A5)
+private val DeviceMuted = Color(0xFF9EB0BC)
 private val DeviceShape = RoundedCornerShape(3.dp)
 private val DeviceFont = FontFamily.SansSerif
-
-data class ProjectSummary(
-    val project: Project,
-    val totalMillis: Long,
-    val sessionCount: Int
-)
 
 class MainActivity : ComponentActivity() {
     private lateinit var nfcHelper: NfcHelper
@@ -66,8 +61,7 @@ class MainActivity : ComponentActivity() {
 
     private val activeProjectName = mutableStateOf<String?>(null)
     private val activeSessionStart = mutableStateOf<Long?>(null)
-    private val lastEventMessage = mutableStateOf("WAITING FOR TAG...")
-    private val currentScreen = mutableStateOf("main")
+    private val currentScreen = mutableStateOf("home")
     private val selectedProjectId = mutableStateOf<Long?>(null)
     private val pendingTagUid = mutableStateOf<String?>(null)
     private val showNewProjectDialog = mutableStateOf(false)
@@ -81,7 +75,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
-                primary = DeviceMint,
+                primary = DevicePrimary,
                 secondary = DeviceOrange,
                 background = DeviceBackground,
                 surface = DevicePanel,
@@ -92,21 +86,17 @@ class MainActivity : ComponentActivity() {
             )) {
                 Surface(Modifier.fillMaxSize(), color = DeviceBackground) {
                     when (currentScreen.value) {
-                        "main" -> MainScreen(
-                            nfcAvailable = nfcHelper.isNfcAvailable(),
-                            nfcEnabled = nfcHelper.isNfcEnabled(),
+                        "home" -> HomeScreen(
                             activeProjectName = activeProjectName.value,
                             activeSessionStart = activeSessionStart.value,
-                            statusMessage = lastEventMessage.value,
-                            onOpenProjects = { currentScreen.value = "projects" }
-                        )
-                        "projects" -> ProjectsScreen(
-                            onNavigateBack = { currentScreen.value = "main" },
-                            onProjectSelected = { projectId -> selectedProjectId.value = projectId; currentScreen.value = "project_detail" },
+                            onProjectSelected = { projectId ->
+                                selectedProjectId.value = projectId
+                                currentScreen.value = "project_detail"
+                            },
                             onCreateProject = { name -> lifecycleScope.launch { db.projectDao().insert(Project(name = name)) } }
                         )
                         "project_detail" -> selectedProjectId.value?.let { projectId ->
-                            ProjectDetailScreen(projectId = projectId, onNavigateBack = { currentScreen.value = "projects" })
+                            ProjectDetailScreen(projectId = projectId, onNavigateBack = { currentScreen.value = "home" })
                         }
                     }
 
@@ -163,7 +153,6 @@ class MainActivity : ComponentActivity() {
         db.timeSessionDao().insert(TimeSession(projectId = projectId, startEpochMillis = now))
         activeProjectName.value = name
         activeSessionStart.value = now
-        lastEventMessage.value = "STARTED / ${name ?: "PROJECT"}"
         vibrateSuccess()
     }
 
@@ -184,18 +173,15 @@ class MainActivity : ComponentActivity() {
                     db.timeSessionDao().closeSession(open.id, now)
                     activeProjectName.value = null
                     activeSessionStart.value = null
-                    lastEventMessage.value = "STOPPED / ${project?.name}"
                 } else {
                     open?.let { db.timeSessionDao().closeSession(it.id, now) }
                     db.timeSessionDao().insert(TimeSession(projectId = mapping.projectId, startEpochMillis = now))
                     activeProjectName.value = project?.name
                     activeSessionStart.value = now
-                    lastEventMessage.value = "STARTED / ${project?.name}"
                 }
                 vibrateSuccess()
             } catch (error: Exception) {
                 Log.e("CubeTimeTracker", "NFC handling error", error)
-                lastEventMessage.value = "TAG READ ERROR"
             }
         }
     }
@@ -216,68 +202,117 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MainScreen(nfcAvailable: Boolean, nfcEnabled: Boolean, activeProjectName: String?, activeSessionStart: Long?, statusMessage: String, onOpenProjects: () -> Unit) {
-    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
-        Column {
-            Text("CUBE TIME", fontFamily = DeviceFont, fontSize = 23.sp, fontWeight = FontWeight.Black, color = DeviceMint)
-            Text("LOCAL TIME TRACKER", fontFamily = DeviceFont, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = DeviceMuted)
-            Spacer(Modifier.height(24.dp))
-            TimerDisplay(activeSessionStart)
-            Spacer(Modifier.height(18.dp))
-            Text(if (activeProjectName == null) "NO ACTIVE PROJECT" else "ACTIVE / ${activeProjectName.uppercase()}", fontFamily = DeviceFont, fontSize = 13.sp, fontWeight = FontWeight.Black, color = DeviceText)
-            Spacer(Modifier.height(6.dp))
-            Text(statusMessage, fontFamily = DeviceFont, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = DeviceOrange)
-        }
-        if (!nfcAvailable || !nfcEnabled) Text(if (!nfcAvailable) "NFC NOT AVAILABLE" else "NFC DISABLED", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, color = DeviceRed, fontSize = 11.sp)
-        DeviceButton(text = "PROJECTS", onClick = onOpenProjects)
-    }
-}
-
-@Composable
-private fun DeviceButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxWidth().height(48.dp).clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanelRaised).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Text(text, fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 13.sp, color = DeviceMint)
-    }
-}
-
-@Composable
-private fun TimerDisplay(startTimeMillis: Long?) {
-    var elapsed by remember { mutableStateOf(0L) }
-    LaunchedEffect(startTimeMillis) {
-        if (startTimeMillis == null) elapsed = 0L else while (true) { elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000; delay(1000) }
-    }
-    val h = elapsed / 3600; val m = (elapsed % 3600) / 60; val s = elapsed % 60
-    Column(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanel).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(if (startTimeMillis == null) "STOPPED" else "RUNNING", fontFamily = DeviceFont, fontSize = 11.sp, fontWeight = FontWeight.Black, color = DeviceOrange)
-        Text(String.format("%02d:%02d:%02d", h, m, s), fontFamily = DeviceFont, fontSize = 42.sp, fontWeight = FontWeight.Black, color = DeviceMint)
-    }
-}
-
-@Composable
-private fun ProjectsScreen(onNavigateBack: () -> Unit, onProjectSelected: (Long) -> Unit, onCreateProject: (String) -> Unit) {
+private fun HomeScreen(
+    activeProjectName: String?,
+    activeSessionStart: Long?,
+    onProjectSelected: (Long) -> Unit,
+    onCreateProject: (String) -> Unit
+) {
     val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val projects by vm.projectsWithTotals().collectAsState(initial = emptyList())
     var showCreateDialog by remember { mutableStateOf(false) }
-    var name by remember { mutableStateOf("") }
-    Scaffold(containerColor = DeviceBackground, topBar = { DeviceTopBar("PROJECTS", onNavigateBack) }) { pad ->
-        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(projects, key = { it.project.id }) { summary -> ProjectSummaryItem(summary) { onProjectSelected(summary.project.id) } }
-            item { Spacer(Modifier.height(4.dp)); DeviceButton(text = "+ NEW PROJECT", onClick = { showCreateDialog = true }) }
+    var newName by remember { mutableStateOf("") }
+
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "CUBE TIME",
+            modifier = Modifier.fillMaxWidth(),
+            fontFamily = DeviceFont,
+            fontWeight = FontWeight.Light,
+            fontSize = 10.sp,
+            color = Color(0xFF1A2B36),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(Modifier.height(18.dp))
+        TimePanel(activeProjectName = activeProjectName, startTimeMillis = activeSessionStart)
+        Spacer(Modifier.height(16.dp))
+        Text("PROJECTS", fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceMuted)
+        Spacer(Modifier.height(7.dp))
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            contentPadding = PaddingValues(bottom = 14.dp)
+        ) {
+            items(projects, key = { it.project.id }) { summary ->
+                ProjectSummaryItem(summary) { onProjectSelected(summary.project.id) }
+            }
+            item { DeviceButton(text = "+ ADD PROJECT", onClick = { showCreateDialog = true }) }
         }
     }
-    if (showCreateDialog) DeviceTextDialog("NEW PROJECT", "PROJECT NAME", name, { name = it }, { if (name.isNotBlank()) { onCreateProject(name.trim()); name = ""; showCreateDialog = false } }, { showCreateDialog = false })
+
+    if (showCreateDialog) {
+        DeviceTextDialog(
+            title = "NEW PROJECT",
+            label = "PROJECT NAME",
+            value = newName,
+            onValueChange = { newName = it },
+            onConfirm = {
+                if (newName.isNotBlank()) {
+                    onCreateProject(newName.trim())
+                    newName = ""
+                    showCreateDialog = false
+                }
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
+}
+
+@Composable
+private fun TimePanel(activeProjectName: String?, startTimeMillis: Long?) {
+    var elapsed by remember { mutableStateOf(0L) }
+    LaunchedEffect(startTimeMillis) {
+        if (startTimeMillis == null) elapsed = 0L else while (true) {
+            elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000
+            delay(1000)
+        }
+    }
+    val h = elapsed / 3600
+    val m = (elapsed % 3600) / 60
+    val s = elapsed % 60
+    Column(
+        Modifier.fillMaxWidth().height(225.dp).clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanel).padding(22.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            activeProjectName?.uppercase() ?: "NO ACTIVE PROJECT",
+            fontFamily = DeviceFont,
+            fontWeight = FontWeight.Black,
+            fontSize = 16.sp,
+            color = if (activeProjectName == null) DeviceMuted else DeviceText,
+            maxLines = 1
+        )
+        Text(
+            String.format("%02d:%02d:%02d", h, m, s),
+            fontFamily = DeviceFont,
+            fontWeight = FontWeight.Black,
+            fontSize = 48.sp,
+            color = DevicePrimary
+        )
+        Text(
+            if (startTimeMillis == null) "TAP A TAG TO START" else "TRACKING",
+            fontFamily = DeviceFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            color = if (startTimeMillis == null) DeviceMuted else DeviceOrange
+        )
+    }
 }
 
 @Composable
 private fun ProjectSummaryItem(summary: ProjectSummary, onClick: () -> Unit) {
-    Box(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanel).clickable(onClick = onClick).padding(15.dp)) {
+    Box(
+        Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanel).clickable(onClick = onClick).padding(15.dp)
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(summary.project.name.uppercase(), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 14.sp, color = DeviceText)
                 Spacer(Modifier.height(4.dp))
                 Text("${summary.sessionCount} SESSION${if (summary.sessionCount == 1) "" else "S"}", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
             }
-            Text(formatDuration(summary.totalMillis), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 16.sp, color = DeviceMint)
+            Text(formatDuration(summary.totalMillis), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 16.sp, color = DevicePrimary)
         }
     }
 }
@@ -291,12 +326,13 @@ private fun ProjectDetailScreen(projectId: Long, onNavigateBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
     var editingSession by remember { mutableStateOf<TimeSession?>(null) }
+
     Scaffold(containerColor = DeviceBackground, topBar = { DeviceTopBar(project?.name?.uppercase() ?: "PROJECT", onNavigateBack) }) { pad ->
         LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Column(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, DeviceBorder, DeviceShape).background(DevicePanel).padding(16.dp)) {
                     Text("TOTAL TRACKED", fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 10.sp, color = DeviceMuted)
-                    Text(formatDuration(total), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 34.sp, color = DeviceMint)
+                    Text(formatDuration(total), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 34.sp, color = DevicePrimary)
                     Text("${sessions.size} SESSION${if (sessions.size == 1) "" else "S"}", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = DeviceOrange)
                 }
             }
@@ -306,7 +342,14 @@ private fun ProjectDetailScreen(projectId: Long, onNavigateBack: () -> Unit) {
             }
         }
     }
-    editingSession?.let { session -> SessionEditDialog(session, { editingSession = null }, { start, end -> scope.launch { vm.updateSession(session.copy(startEpochMillis = start, endEpochMillis = end)); editingSession = null } }) }
+    editingSession?.let { session ->
+        SessionEditDialog(session, { editingSession = null }, { start, end ->
+            scope.launch {
+                vm.updateSession(session.copy(startEpochMillis = start, endEpochMillis = end))
+                editingSession = null
+            }
+        })
+    }
 }
 
 @Composable
@@ -318,7 +361,7 @@ private fun SessionItem(session: TimeSession, formatter: SimpleDateFormat, onEdi
             Text(formatter.format(Date(session.startEpochMillis)), fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = DeviceText)
             Text(if (end == null) "ONGOING" else "END ${formatter.format(Date(end))}", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
             Spacer(Modifier.height(4.dp))
-            Text(formatDuration(duration), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 15.sp, color = DeviceMint)
+            Text(formatDuration(duration), fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 15.sp, color = DevicePrimary)
         }
         IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Edit session", tint = DeviceOrange) }
         IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete session", tint = DeviceRed) }
@@ -328,44 +371,139 @@ private fun SessionItem(session: TimeSession, formatter: SimpleDateFormat, onEdi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DeviceTopBar(title: String, onBack: () -> Unit) {
-    TopAppBar(title = { Text(title, fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 15.sp) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = DeviceBackground, titleContentColor = DeviceMint, navigationIconContentColor = DeviceMint))
+    TopAppBar(
+        title = { Text(title, fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 15.sp) },
+        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = DeviceBackground, titleContentColor = DevicePrimary, navigationIconContentColor = DevicePrimary)
+    )
 }
 
 @Composable
 private fun TagAssignmentDialog(tagUid: String, onDismiss: () -> Unit, onProjectSelected: (Long) -> Unit, onCreateNewProject: () -> Unit) {
     val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val projects by vm.activeProjects().collectAsState(initial = emptyList())
-    DeviceDialog("TAG DETECTED", onDismiss, {
-        Text("UID: $tagUid", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
-        Spacer(Modifier.height(12.dp))
-        Text("ASSIGN TO:", fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceText)
-        Spacer(Modifier.height(4.dp))
-        projects.forEach { project -> TextButton(onClick = { onProjectSelected(project.id) }, modifier = Modifier.fillMaxWidth()) { Text(project.name.uppercase(), fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DeviceMint) } }
-        OutlinedButton(onClick = onCreateNewProject, modifier = Modifier.fillMaxWidth()) { Text("+ NEW PROJECT", fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DeviceMint) }
-    }, "SKIP", onDismiss)
+    DeviceDialog(
+        title = "TAG DETECTED",
+        onDismiss = onDismiss,
+        content = {
+            Text("UID: $tagUid", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
+            Spacer(Modifier.height(12.dp))
+            Text("ASSIGN TO:", fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceText)
+            Spacer(Modifier.height(4.dp))
+            projects.forEach { project ->
+                DeviceTextAction(project.name.uppercase()) { onProjectSelected(project.id) }
+            }
+            DeviceOutlineAction("+ NEW PROJECT", onCreateNewProject)
+        },
+        confirmText = "SKIP",
+        onConfirm = onDismiss
+    )
 }
 
 @Composable
 private fun SessionEditDialog(session: TimeSession, onDismiss: () -> Unit, onSave: (Long, Long?) -> Unit) {
     var startText by remember { mutableStateOf(session.startEpochMillis.toString()) }
     var endText by remember { mutableStateOf(session.endEpochMillis?.toString() ?: "") }
-    DeviceDialog("EDIT SESSION", onDismiss, {
-        Text("USE UNIX TIME IN MILLISECONDS", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
-        Spacer(Modifier.height(10.dp))
-        OutlinedTextField(startText, { startText = it }, label = { Text("START", fontFamily = DeviceFont) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(endText, { endText = it }, label = { Text("END / BLANK = ONGOING", fontFamily = DeviceFont) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    }, "SAVE", { val start = startText.toLongOrNull() ?: return@DeviceDialog; val end = endText.trim().ifEmpty { null }?.toLongOrNull(); onSave(start, end) }, "CANCEL", onDismiss)
+    DeviceDialog(
+        title = "EDIT SESSION",
+        onDismiss = onDismiss,
+        content = {
+            Text("USE UNIX TIME IN MILLISECONDS", fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 10.sp, color = DeviceMuted)
+            Spacer(Modifier.height(10.dp))
+            DeviceField(startText, { startText = it }, "START")
+            Spacer(Modifier.height(8.dp))
+            DeviceField(endText, { endText = it }, "END / BLANK = ONGOING")
+        },
+        confirmText = "SAVE",
+        onConfirm = {
+            val start = startText.toLongOrNull() ?: return@DeviceDialog
+            val end = endText.trim().ifEmpty { null }?.toLongOrNull()
+            onSave(start, end)
+        },
+        dismissText = "CANCEL",
+        onDismissAction = onDismiss
+    )
 }
 
 @Composable
 private fun DeviceTextDialog(title: String, label: String, value: String, onValueChange: (String) -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) {
-    DeviceDialog(title, onDismiss, { OutlinedTextField(value, onValueChange, label = { Text(label, fontFamily = DeviceFont) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }, "CREATE", onConfirm, "CANCEL", onDismiss)
+    DeviceDialog(
+        title = title,
+        onDismiss = onDismiss,
+        content = { DeviceField(value, onValueChange, label) },
+        confirmText = "CREATE",
+        onConfirm = onConfirm,
+        dismissText = "CANCEL",
+        onDismissAction = onDismiss
+    )
 }
 
 @Composable
-private fun DeviceDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit, confirmText: String, onConfirm: () -> Unit, dismissText: String? = null, onDismissAction: (() -> Unit)? = null) {
-    AlertDialog(modifier = Modifier.clip(DeviceShape), shape = DeviceShape, containerColor = DevicePanel, tonalElevation = 0.dp, onDismissRequest = onDismiss, title = { Text(title, fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DeviceMint) }, text = { Column(content = content) }, confirmButton = { TextButton(onClick = onConfirm) { Text(confirmText, fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DeviceMint) } }, dismissButton = if (dismissText == null) null else { { TextButton(onClick = onDismissAction ?: onDismiss) { Text(dismissText, fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DeviceText) } } })
+private fun DeviceField(value: String, onValueChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, fontFamily = DeviceFont, fontWeight = FontWeight.Bold, fontSize = 11.sp) },
+        textStyle = LocalTextStyle.current.copy(fontFamily = DeviceFont, fontWeight = FontWeight.Bold, color = DeviceText),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        shape = DeviceShape,
+        colors = OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = DeviceBorder,
+            unfocusedBorderColor = DeviceBorder,
+            focusedLabelColor = DevicePrimary,
+            unfocusedLabelColor = DeviceMuted,
+            cursorColor = DevicePrimary
+        )
+    )
+}
+
+@Composable
+private fun DeviceTextAction(text: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().clip(DeviceShape),
+        shape = DeviceShape,
+        colors = ButtonDefaults.textButtonColors(contentColor = DevicePrimary)
+    ) {
+        Text(text, fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun DeviceOutlineAction(text: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = DeviceShape,
+        border = androidx.compose.foundation.BorderStroke(1.dp, DeviceBorder),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = DevicePrimary)
+    ) {
+        Text(text, fontFamily = DeviceFont, fontWeight = FontWeight.Black, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun DeviceDialog(
+    title: String,
+    onDismiss: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit,
+    confirmText: String,
+    onConfirm: () -> Unit,
+    dismissText: String? = null,
+    onDismissAction: (() -> Unit)? = null
+) {
+    AlertDialog(
+        modifier = Modifier.clip(DeviceShape),
+        shape = DeviceShape,
+        containerColor = DevicePanel,
+        tonalElevation = 0.dp,
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontFamily = DeviceFont, fontWeight = FontWeight.Black, color = DevicePrimary) },
+        text = { Column(content = content) },
+        confirmButton = { DeviceTextAction(confirmText, onConfirm) },
+        dismissButton = if (dismissText == null) null else { { DeviceTextAction(dismissText, onDismissAction ?: onDismiss) } }
+    )
 }
 
 private fun formatDuration(milliseconds: Long): String {
