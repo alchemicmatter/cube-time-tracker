@@ -28,7 +28,9 @@ class SessionsViewModel(application: Application) : AndroidViewModel(application
             val projectSessions = sessions.filter { it.projectId == project.id }
             ProjectSummary(
                 project = project,
-                totalMillis = projectSessions.sumOf { (it.endEpochMillis ?: now) - it.startEpochMillis },
+                totalMillis = projectSessions.sumOf { session ->
+                    (session.endEpochMillis ?: now) - session.startEpochMillis
+                },
                 sessionCount = projectSessions.size
             )
         }
