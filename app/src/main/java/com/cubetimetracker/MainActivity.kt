@@ -71,6 +71,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var nfcHelper: NfcHelper
     private lateinit var db: AppDatabase
     private lateinit var vibrator: Vibrator
+
     private val activeProjectName = mutableStateOf<String?>(null)
     private val activeProjectId = mutableStateOf<Long?>(null)
     private val activeSessionStart = mutableStateOf<Long?>(null)
@@ -87,29 +88,88 @@ class MainActivity : ComponentActivity() {
         window.statusBarColor = AndroidColor.BLACK
         window.navigationBarColor = AndroidColor.BLACK
         WindowCompat.setDecorFitsSystemWindows(window, true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) window.insetsController?.setSystemBarsAppearance(0, WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.setSystemBarsAppearance(
+                0,
+                WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+            )
+        }
         nfcHelper = NfcHelper(this)
         db = AppDatabase.getInstance(this)
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
         restoreOpenSession()
 
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = DevicePrimary, secondary = DeviceOrange, background = AppBlack, surface = PanelLevel1, onPrimary = AppBlack, onSecondary = AppBlack, onBackground = DeviceText, onSurface = DeviceText)) {
+            MaterialTheme(
+                colorScheme = darkColorScheme(
+                    primary = DevicePrimary,
+                    secondary = DeviceOrange,
+                    background = AppBlack,
+                    surface = PanelLevel1,
+                    onPrimary = AppBlack,
+                    onSecondary = AppBlack,
+                    onBackground = DeviceText,
+                    onSurface = DeviceText
+                )
+            ) {
                 Surface(Modifier.fillMaxSize(), color = AppBlack) {
                     when (currentScreen.value) {
-                        "home" -> HomeScreen(activeProjectId.value, activeProjectName.value, activeSessionStart.value, { id -> selectedProjectId.value = id; currentScreen.value = "project_detail" }, { name -> lifecycleScope.launch { db.projectDao().insert(Project(name = name)) } })
-                        "project_detail" -> selectedProjectId.value?.let { id -> ProjectDetailScreen(id, activeProjectId.value, { currentScreen.value = "home" }, { startProjectManually(id) }, { stopActiveSession() }) }
-                    }
-                    pendingTagUid.value?.let { uid -> TagAssignmentDialog(uid, { pendingTagUid.value = null }, { id -> assignTagAndStart(uid, id) }, { showNewProjectDialog.value = true }) }
-                    if (showNewProjectDialog.value) {
-                        DeviceTextDialog("NEW PROJECT", "PROJECT NAME", newProjectName.value, { newProjectName.value = it }, {
-                            val uid = pendingTagUid.value; val name = newProjectName.value.trim()
-                            if (name.isNotBlank()) lifecycleScope.launch {
-                                val id = db.projectDao().insert(Project(name = name))
-                                if (uid != null) { db.tagMappingDao().upsert(TagMapping(tagUid = uid, projectId = id)); startSession(id, name); pendingTagUid.value = null }
-                                newProjectName.value = ""; showNewProjectDialog.value = false
+                        "home" -> HomeScreen(
+                            activeProjectId = activeProjectId.value,
+                            activeProjectName = activeProjectName.value,
+                            activeSessionStart = activeSessionStart.value,
+                            onProjectSelected = { id ->
+                                selectedProjectId.value = id
+                                currentScreen.value = "project_detail"
+                            },
+                            onCreateProject = { name ->
+                                lifecycleScope.launch { db.projectDao().insert(Project(name = name)) }
                             }
-                        }, { showNewProjectDialog.value = false })
+                        )
+                        "project_detail" -> selectedProjectId.value?.let { id ->
+                            ProjectDetailScreen(
+                                projectId = id,
+                                activeProjectId = activeProjectId.value,
+                                onNavigateBack = { currentScreen.value = "home" },
+                                onStartProject = { startProjectManually(id) },
+                                onStopProject = { stopActiveSession() }
+                            )
+                        }
+                    }
+
+                    pendingTagUid.value?.let { uid ->
+                        TagAssignmentDialog(
+                            tagUid = uid,
+                            onDismiss = { pendingTagUid.value = null },
+                            onProjectSelected = { id -> assignTagAndStart(uid, id) },
+                            onCreateNewProject = { showNewProjectDialog.value = true }
+                        )
+                    }
+
+                    if (showNewProjectDialog.value) {
+                        DeviceTextDialog(
+                            title = "NEW PROJECT",
+                            label = "PROJECT NAME",
+                            value = newProjectName.value,
+                            onValueChange = { newProjectName.value = it },
+                            onConfirm = {
+                                val uid = pendingTagUid.value
+                                val name = newProjectName.value.trim()
+                                if (name.isNotBlank()) {
+                                    lifecycleScope.launch {
+                                        val id = db.projectDao().insert(Project(name = name))
+                                        if (uid != null) {
+                                            db.tagMappingDao().upsert(TagMapping(tagUid = uid, projectId = id))
+                                            startSession(id, name)
+                                            pendingTagUid.value = null
+                                        }
+                                        newProjectName.value = ""
+                                        showNewProjectDialog.value = false
+                                    }
+                                }
+                            },
+                            onDismiss = { showNewProjectDialog.value = false }
+                        )
                     }
                 }
             }
@@ -117,51 +177,105 @@ class MainActivity : ComponentActivity() {
         handleIntentIfTag(intent)
     }
 
-    private fun restoreOpenSession() = lifecycleScope.launch {
-        db.timeSessionDao().getOpenSession()?.let { session ->
-            activeProjectId.value = session.projectId
-            activeSessionStart.value = session.startEpochMillis
-            activeProjectName.value = db.projectDao().getById(session.projectId)?.name
+    private fun restoreOpenSession() {
+        lifecycleScope.launch {
+            db.timeSessionDao().getOpenSession()?.let { session ->
+                activeProjectId.value = session.projectId
+                activeSessionStart.value = session.startEpochMillis
+                activeProjectName.value = db.projectDao().getById(session.projectId)?.name
+            }
         }
     }
 
-    private fun assignTagAndStart(uid: String, projectId: Long) = lifecycleScope.launch { db.tagMappingDao().upsert(TagMapping(tagUid = uid, projectId = projectId)); startProject(projectId); pendingTagUid.value = null }
-    private fun startProjectManually(projectId: Long) = lifecycleScope.launch { startProject(projectId) }
-    private suspend fun startProject(projectId: Long) { startSession(projectId, db.projectDao().getById(projectId)?.name) }
+    private fun assignTagAndStart(uid: String, projectId: Long) {
+        lifecycleScope.launch {
+            db.tagMappingDao().upsert(TagMapping(tagUid = uid, projectId = projectId))
+            startProject(projectId)
+            pendingTagUid.value = null
+        }
+    }
+
+    private fun startProjectManually(projectId: Long) {
+        lifecycleScope.launch { startProject(projectId) }
+    }
+
+    private suspend fun startProject(projectId: Long) {
+        startSession(projectId, db.projectDao().getById(projectId)?.name)
+    }
 
     private suspend fun startSession(projectId: Long, name: String?) {
-        val now = System.currentTimeMillis(); val previous = db.timeSessionDao().getOpenSession()
+        val now = System.currentTimeMillis()
+        val previous = db.timeSessionDao().getOpenSession()
         previous?.let { db.timeSessionDao().closeSession(it.id, now) }
         db.timeSessionDao().insert(TimeSession(projectId = projectId, startEpochMillis = now))
-        activeProjectId.value = projectId; activeProjectName.value = name; activeSessionStart.value = now
+        activeProjectId.value = projectId
+        activeProjectName.value = name
+        activeSessionStart.value = now
         if (previous == null) vibrateStart() else vibrateSwitch()
     }
 
-    private fun stopActiveSession() = lifecycleScope.launch {
-        val open = db.timeSessionDao().getOpenSession() ?: return@launch
-        db.timeSessionDao().closeSession(open.id, System.currentTimeMillis())
-        activeProjectId.value = null; activeProjectName.value = null; activeSessionStart.value = null; vibrateStop()
+    private fun stopActiveSession() {
+        lifecycleScope.launch {
+            val open = db.timeSessionDao().getOpenSession() ?: return@launch
+            db.timeSessionDao().closeSession(open.id, System.currentTimeMillis())
+            activeProjectId.value = null
+            activeProjectName.value = null
+            activeSessionStart.value = null
+            vibrateStop()
+        }
     }
 
     private fun handleIntentIfTag(intent: Intent) {
         val uid = runCatching { nfcHelper.extractUid(intent) }.getOrNull() ?: return
         val now = System.currentTimeMillis()
         if (uid == lastTagUid && now - lastTagReadAt < 1500L) return
-        lastTagUid = uid; lastTagReadAt = now
+        lastTagUid = uid
+        lastTagReadAt = now
         lifecycleScope.launch {
             try {
                 val mapping = db.tagMappingDao().findByUid(uid)
-                if (mapping == null) { pendingTagUid.value = uid; vibrateUnknown(); return@launch }
+                if (mapping == null) {
+                    pendingTagUid.value = uid
+                    vibrateUnknown()
+                    return@launch
+                }
                 val open = db.timeSessionDao().getOpenSession()
-                if (open != null && open.projectId == mapping.projectId) stopActiveSession() else startProject(mapping.projectId)
-            } catch (error: Exception) { Log.e("CubeTimeTracker", "NFC handling error", error) }
+                if (open != null && open.projectId == mapping.projectId) {
+                    stopActiveSession()
+                } else {
+                    startProject(mapping.projectId)
+                }
+            } catch (error: Exception) {
+                Log.e("CubeTimeTracker", "NFC handling error", error)
+            }
         }
     }
 
-    override fun onResume() { super.onResume(); nfcHelper.enableForegroundDispatch() }
-    override fun onPause() { super.onPause(); nfcHelper.disableForegroundDispatch() }
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIntentIfTag(intent) }
-    private fun vibratePattern(pattern: LongArray) = runCatching { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1)) else @Suppress("DEPRECATION") vibrator.vibrate(pattern, -1) }
+    override fun onResume() {
+        super.onResume()
+        nfcHelper.enableForegroundDispatch()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        nfcHelper.disableForegroundDispatch()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntentIfTag(intent)
+    }
+
+    private fun vibratePattern(pattern: LongArray) {
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION") vibrator.vibrate(pattern, -1)
+            }
+        }
+    }
+
     private fun vibrateStart() = vibratePattern(longArrayOf(0, 45))
     private fun vibrateStop() = vibratePattern(longArrayOf(0, 140))
     private fun vibrateSwitch() = vibratePattern(longArrayOf(0, 35, 65, 35))
@@ -169,73 +283,338 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun HomeScreen(activeProjectId: Long?, activeProjectName: String?, activeSessionStart: Long?, onProjectSelected: (Long) -> Unit, onCreateProject: (String) -> Unit) {
-    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(); val projects by vm.projectsWithTotals().collectAsState(initial = emptyList<ProjectSummary>())
-    var showCreateDialog by remember { mutableStateOf(false) }; var newName by remember { mutableStateOf("") }
+private fun HomeScreen(
+    activeProjectId: Long?,
+    activeProjectName: String?,
+    activeSessionStart: Long?,
+    onProjectSelected: (Long) -> Unit,
+    onCreateProject: (String) -> Unit
+) {
+    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val projects by vm.projectsWithTotals().collectAsState(initial = emptyList<ProjectSummary>())
+    var showCreateDialog by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
-        Spacer(Modifier.height(14.dp)); Text("CUBE TIME", Modifier.fillMaxWidth(), fontFamily = Exo2, fontWeight = FontWeight.Light, fontSize = 10.sp, color = Color(0xFF151515), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Spacer(Modifier.height(18.dp)); TimePanel(activeProjectName, activeSessionStart); Spacer(Modifier.height(16.dp)); Text("PROJECTS", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceMuted); Spacer(Modifier.height(7.dp))
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp), contentPadding = PaddingValues(bottom = 14.dp)) {
-            items(projects, key = { it.project.id }) { summary -> ProjectSummaryItem(summary, summary.project.id == activeProjectId) { onProjectSelected(summary.project.id) } }
-            item { DeviceButton(text = "+ ADD PROJECT", onClick = { showCreateDialog = true }) }
+        Spacer(Modifier.height(14.dp))
+        Text(
+            "CUBE TIME",
+            Modifier.fillMaxWidth(),
+            fontFamily = Exo2,
+            fontWeight = FontWeight.Light,
+            fontSize = 10.sp,
+            color = Color(0xFF151515),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+        )
+        Spacer(Modifier.height(18.dp))
+        TimePanel(activeProjectName, activeSessionStart)
+        Spacer(Modifier.height(16.dp))
+        Text("PROJECTS", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceMuted)
+        Spacer(Modifier.height(7.dp))
+        LazyColumn(
+            Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+            contentPadding = PaddingValues(bottom = 14.dp)
+        ) {
+            items(projects, key = { it.project.id }) { summary ->
+                ProjectSummaryItem(
+                    summary = summary,
+                    isActive = summary.project.id == activeProjectId,
+                    onClick = { onProjectSelected(summary.project.id) }
+                )
+            }
+            item {
+                DeviceButton(text = "+ ADD PROJECT", onClick = { showCreateDialog = true })
+            }
         }
     }
-    if (showCreateDialog) DeviceTextDialog("NEW PROJECT", "PROJECT NAME", newName, { newName = it }, { if (newName.isNotBlank()) { onCreateProject(newName.trim()); newName = ""; showCreateDialog = false } }, { showCreateDialog = false })
+
+    if (showCreateDialog) {
+        DeviceTextDialog(
+            title = "NEW PROJECT",
+            label = "PROJECT NAME",
+            value = newName,
+            onValueChange = { newName = it },
+            onConfirm = {
+                if (newName.isNotBlank()) {
+                    onCreateProject(newName.trim())
+                    newName = ""
+                    showCreateDialog = false
+                }
+            },
+            onDismiss = { showCreateDialog = false }
+        )
+    }
 }
 
 @Composable
-private fun DeviceButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) { Box(modifier.fillMaxWidth().height(46.dp).clip(DeviceShape).border(1.dp, BorderLevel2, DeviceShape).background(PanelLevel3).clickable(onClick = onClick), contentAlignment = Alignment.Center) { Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp, color = DevicePrimary) } }
+private fun DeviceButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier
+            .fillMaxWidth()
+            .height(46.dp)
+            .clip(DeviceShape)
+            .border(1.dp, BorderLevel2, DeviceShape)
+            .background(PanelLevel3)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp, color = DevicePrimary)
+    }
+}
 
 @Composable
 private fun TimePanel(activeProjectName: String?, startTimeMillis: Long?) {
-    var elapsed by remember { mutableStateOf(0L) }; LaunchedEffect(startTimeMillis) { if (startTimeMillis == null) elapsed = 0L else while (true) { elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000; delay(1000) } }
-    val h = elapsed / 3600; val m = (elapsed % 3600) / 60; val s = elapsed % 60
-    Column(Modifier.fillMaxWidth().height(225.dp).clip(DeviceShape).border(1.dp, BorderLevel1, DeviceShape).background(PanelLevel1).padding(22.dp), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) { Text(activeProjectName?.uppercase() ?: "NO ACTIVE PROJECT", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 16.sp, color = if (activeProjectName == null) DeviceMuted else DeviceText, maxLines = 1); Text(String.format("%02d:%02d:%02d", h, m, s), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 48.sp, color = DevicePrimary); Text(if (startTimeMillis == null) "TAP A TAG TO START" else "TRACKING", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = if (startTimeMillis == null) DeviceMuted else DeviceOrange) }
+    var elapsed by remember { mutableStateOf(0L) }
+    LaunchedEffect(startTimeMillis) {
+        if (startTimeMillis == null) {
+            elapsed = 0L
+        } else {
+            while (true) {
+                elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000
+                delay(1000)
+            }
+        }
+    }
+    val h = elapsed / 3600
+    val m = (elapsed % 3600) / 60
+    val s = elapsed % 60
+    Column(
+        Modifier.fillMaxWidth().height(225.dp).clip(DeviceShape).border(1.dp, BorderLevel1, DeviceShape).background(PanelLevel1).padding(22.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(activeProjectName?.uppercase() ?: "NO ACTIVE PROJECT", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 16.sp, color = if (activeProjectName == null) DeviceMuted else DeviceText, maxLines = 1)
+        Text(String.format("%02d:%02d:%02d", h, m, s), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 48.sp, color = DevicePrimary)
+        Text(if (startTimeMillis == null) "TAP A TAG TO START" else "TRACKING", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = if (startTimeMillis == null) DeviceMuted else DeviceOrange)
+    }
 }
 
 @Composable
 private fun ProjectSummaryItem(summary: ProjectSummary, isActive: Boolean, onClick: () -> Unit) {
-    val panel = if (isActive) PanelLevel2 else PanelLevel3; val border = if (isActive) DeviceOrange else BorderLevel3
-    Box(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, border, DeviceShape).background(panel).clickable(onClick = onClick).padding(15.dp)) { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(summary.project.name.uppercase(), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 14.sp, color = if (isActive) DeviceOrange else DeviceText); Spacer(Modifier.height(4.dp)); Text(if (isActive) "ACTIVE / ${summary.sessionCount} SESSIONS" else "${summary.sessionCount} SESSION${if (summary.sessionCount == 1) "" else "S"}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = if (isActive) DeviceOrange else DeviceMuted) }; Text(formatDuration(summary.totalMillis), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 16.sp, color = if (isActive) DeviceOrange else DevicePrimary) } }
+    val panel = if (isActive) PanelLevel2 else PanelLevel3
+    val border = if (isActive) DeviceOrange else BorderLevel3
+    Box(
+        Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, border, DeviceShape).background(panel).clickable(onClick = onClick).padding(15.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(summary.project.name.uppercase(), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 14.sp, color = if (isActive) DeviceOrange else DeviceText)
+                Spacer(Modifier.height(4.dp))
+                Text(if (isActive) "ACTIVE / ${summary.sessionCount} SESSIONS" else "${summary.sessionCount} SESSION${if (summary.sessionCount == 1) "" else "S"}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = if (isActive) DeviceOrange else DeviceMuted)
+            }
+            Text(formatDuration(summary.totalMillis), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 16.sp, color = if (isActive) DeviceOrange else DevicePrimary)
+        }
+    }
 }
 
 @Composable
-private fun ProjectDetailScreen(projectId: Long, activeProjectId: Long?, onNavigateBack: () -> Unit, onStartProject: () -> Unit, onStopProject: () -> Unit) {
-    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(); val project by vm.project(projectId).collectAsState(initial = null); val sessions by vm.sessionsForProject(projectId).collectAsState(initial = emptyList())
-    val total = sessions.sumOf { (it.endEpochMillis ?: System.currentTimeMillis()) - it.startEpochMillis }; val scope = rememberCoroutineScope(); val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }; var editingSession by remember { mutableStateOf<TimeSession?>(null) }; val isCurrentProject = activeProjectId == projectId
-    Scaffold(containerColor = AppBlack, topBar = { DeviceTopBar(project?.name?.uppercase() ?: "PROJECT", onNavigateBack) }) { pad -> LazyColumn(Modifier.fillMaxSize().padding(pad).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { item { Row(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, BorderLevel1, DeviceShape).background(PanelLevel1).padding(16.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text("TOTAL TRACKED", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 10.sp, color = DeviceMuted); Text(formatDuration(total), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 34.sp, color = DevicePrimary); Text("${sessions.size} SESSION${if (sessions.size == 1) "" else "S"}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp, color = DeviceOrange) }; ManualTimerButton(isCurrentProject) { if (isCurrentProject) onStopProject() else onStartProject() } } }; item { Text("SESSIONS", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceMuted, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)) }; items(sessions, key = { it.id }) { session -> SessionItem(session, formatter, { editingSession = session }, { scope.launch { vm.deleteSession(session.id) } }) } } }
-    editingSession?.let { session -> SessionEditDialog(session, { editingSession = null }, { start, end -> scope.launch { vm.updateSession(session.copy(startEpochMillis = start, endEpochMillis = end)); editingSession = null } }) }
+private fun ProjectDetailScreen(
+    projectId: Long,
+    activeProjectId: Long?,
+    onNavigateBack: () -> Unit,
+    onStartProject: () -> Unit,
+    onStopProject: () -> Unit
+) {
+    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val project by vm.project(projectId).collectAsState(initial = null)
+    val sessions by vm.sessionsForProject(projectId).collectAsState(initial = emptyList())
+    val total = sessions.sumOf { (it.endEpochMillis ?: System.currentTimeMillis()) - it.startEpochMillis }
+    val scope = rememberCoroutineScope()
+    val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
+    var editingSession by remember { mutableStateOf<TimeSession?>(null) }
+    val isCurrentProject = activeProjectId == projectId
+
+    Scaffold(
+        containerColor = AppBlack,
+        topBar = { DeviceTopBar(project?.name?.uppercase() ?: "PROJECT", onNavigateBack) }
+    ) { paddingValues ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(paddingValues).padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            item {
+                Row(
+                    Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, BorderLevel1, DeviceShape).background(PanelLevel1).padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("TOTAL TRACKED", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 10.sp, color = DeviceMuted)
+                        Text(formatDuration(total), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 34.sp, color = DevicePrimary)
+                        Text("${sessions.size} SESSION${if (sessions.size == 1) "" else "S"}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp, color = DeviceOrange)
+                    }
+                    ManualTimerButton(
+                        isRunning = isCurrentProject,
+                        onClick = { if (isCurrentProject) onStopProject() else onStartProject() }
+                    )
+                }
+            }
+            item {
+                Text("SESSIONS", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceMuted, modifier = Modifier.padding(top = 8.dp, bottom = 2.dp))
+            }
+            items(sessions, key = { it.id }) { session ->
+                SessionItem(
+                    session = session,
+                    formatter = formatter,
+                    onEdit = { editingSession = session },
+                    onDelete = { scope.launch { vm.deleteSession(session.id) } }
+                )
+            }
+        }
+    }
+
+    editingSession?.let { session ->
+        SessionEditDialog(
+            session = session,
+            onDismiss = { editingSession = null },
+            onSave = { start, end ->
+                scope.launch {
+                    vm.updateSession(session.copy(startEpochMillis = start, endEpochMillis = end))
+                    editingSession = null
+                }
+            }
+        )
+    }
 }
 
 @Composable
-private fun ManualTimerButton(isRunning: Boolean, onClick: () -> Unit) { Box(Modifier.size(52.dp).clip(DeviceShape).border(1.dp, if (isRunning) DeviceOrange else BorderLevel2, DeviceShape).background(if (isRunning) PanelLevel2 else PanelLevel3).clickable(onClick = onClick), contentAlignment = Alignment.Center) { if (isRunning) Text("■", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 18.sp, color = DeviceOrange) else Icon(Icons.Default.PlayArrow, "Start timer", tint = DevicePrimary) } }
+private fun ManualTimerButton(isRunning: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(52.dp).clip(DeviceShape).border(1.dp, if (isRunning) DeviceOrange else BorderLevel2, DeviceShape).background(if (isRunning) PanelLevel2 else PanelLevel3).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isRunning) {
+            Text("■", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 18.sp, color = DeviceOrange)
+        } else {
+            Icon(Icons.Default.PlayArrow, "Start timer", tint = DevicePrimary)
+        }
+    }
+}
 
 @Composable
-private fun SessionItem(session: TimeSession, formatter: SimpleDateFormat, onEdit: () -> Unit, onDelete: () -> Unit) { val end = session.endEpochMillis; val duration = (end ?: System.currentTimeMillis()) - session.startEpochMillis; Row(Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, BorderLevel3, DeviceShape).background(PanelLevel3).padding(14.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(formatter.format(Date(session.startEpochMillis)), fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp, color = DeviceText); Text(if (end == null) "ONGOING" else "END ${formatter.format(Date(end))}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted); Spacer(Modifier.height(4.dp)); Text(formatDuration(duration), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 15.sp, color = DevicePrimary) }; IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Edit session", tint = DeviceOrange) }; IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete session", tint = DeviceRed) } }
+private fun SessionItem(session: TimeSession, formatter: SimpleDateFormat, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val end = session.endEpochMillis
+    val duration = (end ?: System.currentTimeMillis()) - session.startEpochMillis
+    Row(
+        Modifier.fillMaxWidth().clip(DeviceShape).border(1.dp, BorderLevel3, DeviceShape).background(PanelLevel3).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(formatter.format(Date(session.startEpochMillis)), fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp, color = DeviceText)
+            Text(if (end == null) "ONGOING" else "END ${formatter.format(Date(end))}", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted)
+            Spacer(Modifier.height(4.dp))
+            Text(formatDuration(duration), fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 15.sp, color = DevicePrimary)
+        }
+        IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Edit session", tint = DeviceOrange) }
+        IconButton(onClick = onDelete) { Icon(Icons.Default.Delete, "Delete session", tint = DeviceRed) }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DeviceTopBar(title: String, onBack: () -> Unit) { TopAppBar(title = { Text(title, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 15.sp) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBlack, titleContentColor = DevicePrimary, navigationIconContentColor = DevicePrimary)) }
+private fun DeviceTopBar(title: String, onBack: () -> Unit) {
+    TopAppBar(
+        title = { Text(title, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 15.sp) },
+        navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBlack, titleContentColor = DevicePrimary, navigationIconContentColor = DevicePrimary)
+    )
+}
 
 @Composable
-private fun TagAssignmentDialog(tagUid: String, onDismiss: () -> Unit, onProjectSelected: (Long) -> Unit, onCreateNewProject: () -> Unit) { val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel(); val projects by vm.activeProjects().collectAsState(initial = emptyList()); DeviceDialog("TAG DETECTED", onDismiss, { Text("UID: $tagUid", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted); Spacer(Modifier.height(12.dp)); Text("ASSIGN TO:", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceText); Spacer(Modifier.height(4.dp)); projects.forEach { project -> DeviceTextAction(project.name.uppercase()) { onProjectSelected(project.id) } }; DeviceOutlineAction("+ NEW PROJECT", onCreateNewProject) }, "SKIP", onDismiss) }
+private fun TagAssignmentDialog(tagUid: String, onDismiss: () -> Unit, onProjectSelected: (Long) -> Unit, onCreateNewProject: () -> Unit) {
+    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val projects by vm.activeProjects().collectAsState(initial = emptyList())
+    DeviceDialog(
+        title = "TAG DETECTED",
+        onDismiss = onDismiss,
+        content = {
+            Text("UID: $tagUid", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted)
+            Spacer(Modifier.height(12.dp))
+            Text("ASSIGN TO:", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceText)
+            Spacer(Modifier.height(4.dp))
+            projects.forEach { project -> DeviceTextAction(project.name.uppercase()) { onProjectSelected(project.id) } }
+            DeviceOutlineAction("+ NEW PROJECT", onCreateNewProject)
+        },
+        confirmText = "SKIP",
+        onConfirm = onDismiss
+    )
+}
 
 @Composable
-private fun SessionEditDialog(session: TimeSession, onDismiss: () -> Unit, onSave: (Long, Long?) -> Unit) { var startText by remember { mutableStateOf(session.startEpochMillis.toString()) }; var endText by remember { mutableStateOf(session.endEpochMillis?.toString() ?: "") }; DeviceDialog("EDIT SESSION", onDismiss, { Text("USE UNIX TIME IN MILLISECONDS", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted); Spacer(Modifier.height(10.dp)); DeviceField(startText, { startText = it }, "START"); Spacer(Modifier.height(8.dp)); DeviceField(endText, { endText = it }, "END / BLANK = ONGOING") }, "SAVE", { val start = startText.toLongOrNull() ?: return@DeviceDialog; val end = endText.trim().ifEmpty { null }?.toLongOrNull(); onSave(start, end) }, "CANCEL", onDismiss) }
+private fun SessionEditDialog(session: TimeSession, onDismiss: () -> Unit, onSave: (Long, Long?) -> Unit) {
+    var startText by remember { mutableStateOf(session.startEpochMillis.toString()) }
+    var endText by remember { mutableStateOf(session.endEpochMillis?.toString() ?: "") }
+    DeviceDialog(
+        title = "EDIT SESSION",
+        onDismiss = onDismiss,
+        content = {
+            Text("USE UNIX TIME IN MILLISECONDS", fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 10.sp, color = DeviceMuted)
+            Spacer(Modifier.height(10.dp))
+            DeviceField(startText, { startText = it }, "START")
+            Spacer(Modifier.height(8.dp))
+            DeviceField(endText, { endText = it }, "END / BLANK = ONGOING")
+        },
+        confirmText = "SAVE",
+        onConfirm = {
+            val start = startText.toLongOrNull() ?: return@DeviceDialog
+            val end = endText.trim().ifEmpty { null }?.toLongOrNull()
+            onSave(start, end)
+        },
+        dismissText = "CANCEL",
+        onDismissAction = onDismiss
+    )
+}
 
 @Composable
-private fun DeviceTextDialog(title: String, label: String, value: String, onValueChange: (String) -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) { DeviceDialog(title, onDismiss, { DeviceField(value, onValueChange, label) }, "CREATE", onConfirm, "CANCEL", onDismiss) }
+private fun DeviceTextDialog(title: String, label: String, value: String, onValueChange: (String) -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    DeviceDialog(title, onDismiss, { DeviceField(value, onValueChange, label) }, "CREATE", onConfirm, "CANCEL", onDismiss)
+}
 
 @Composable
-private fun DeviceField(value: String, onValueChange: (String) -> Unit, label: String) { OutlinedTextField(value = value, onValueChange = onValueChange, label = { Text(label, fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp) }, textStyle = LocalTextStyle.current.copy(fontFamily = Exo2, fontWeight = FontWeight.Normal, color = DeviceText), singleLine = true, modifier = Modifier.fillMaxWidth(), shape = DeviceShape, colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BorderLevel1, unfocusedBorderColor = BorderLevel2, focusedLabelColor = DevicePrimary, unfocusedLabelColor = DeviceMuted, cursorColor = DevicePrimary)) }
+private fun DeviceField(value: String, onValueChange: (String) -> Unit, label: String) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, fontFamily = Exo2, fontWeight = FontWeight.Normal, fontSize = 11.sp) },
+        textStyle = LocalTextStyle.current.copy(fontFamily = Exo2, fontWeight = FontWeight.Normal, color = DeviceText),
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        shape = DeviceShape,
+        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = BorderLevel1, unfocusedBorderColor = BorderLevel2, focusedLabelColor = DevicePrimary, unfocusedLabelColor = DeviceMuted, cursorColor = DevicePrimary)
+    )
+}
 
 @Composable
-private fun DeviceTextAction(text: String, onClick: () -> Unit) { TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().clip(DeviceShape), shape = DeviceShape, colors = ButtonDefaults.textButtonColors(contentColor = DevicePrimary)) { Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp) } }
+private fun DeviceTextAction(text: String, onClick: () -> Unit) {
+    TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth().clip(DeviceShape), shape = DeviceShape, colors = ButtonDefaults.textButtonColors(contentColor = DevicePrimary)) {
+        Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp)
+    }
+}
 
 @Composable
-private fun DeviceOutlineAction(text: String, onClick: () -> Unit) { OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = DeviceShape, border = androidx.compose.foundation.BorderStroke(1.dp, BorderLevel2), colors = ButtonDefaults.outlinedButtonColors(contentColor = DevicePrimary)) { Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp) } }
+private fun DeviceOutlineAction(text: String, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = DeviceShape, border = androidx.compose.foundation.BorderStroke(1.dp, BorderLevel2), colors = ButtonDefaults.outlinedButtonColors(contentColor = DevicePrimary)) {
+        Text(text, fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 12.sp)
+    }
+}
 
 @Composable
-private fun DeviceDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit, confirmText: String, onConfirm: () -> Unit, dismissText: String? = null, onDismissAction: (() -> Unit)? = null) { AlertDialog(modifier = Modifier.clip(DeviceShape), shape = DeviceShape, containerColor = PanelLevel2, tonalElevation = 0.dp, onDismissRequest = onDismiss, title = { Text(title, fontFamily = Exo2, fontWeight = FontWeight.Black, color = DevicePrimary) }, text = { Column(content = content) }, confirmButton = { DeviceTextAction(confirmText, onConfirm) }, dismissButton = if (dismissText == null) null else { { DeviceTextAction(dismissText, onDismissAction ?: onDismiss) } }) }
+private fun DeviceDialog(title: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit, confirmText: String, onConfirm: () -> Unit, dismissText: String? = null, onDismissAction: (() -> Unit)? = null) {
+    AlertDialog(
+        modifier = Modifier.clip(DeviceShape),
+        shape = DeviceShape,
+        containerColor = PanelLevel2,
+        tonalElevation = 0.dp,
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontFamily = Exo2, fontWeight = FontWeight.Black, color = DevicePrimary) },
+        text = { Column(content = content) },
+        confirmButton = { DeviceTextAction(confirmText, onConfirm) },
+        dismissButton = if (dismissText == null) null else { { DeviceTextAction(dismissText, onDismissAction ?: onDismiss) } }
+    )
+}
 
-private fun formatDuration(milliseconds: Long): String { val minutes = milliseconds.coerceAtLeast(0L) / 60_000; val hours = minutes / 60; return if (hours > 0) "%dh %02dm".format(hours, minutes % 60) else "%dm".format(minutes) }
+private fun formatDuration(milliseconds: Long): String {
+    val minutes = milliseconds.coerceAtLeast(0L) / 60_000
+    val hours = minutes / 60
+    return if (hours > 0) "%dh %02dm".format(hours, minutes % 60) else "%dm".format(minutes)
+}
