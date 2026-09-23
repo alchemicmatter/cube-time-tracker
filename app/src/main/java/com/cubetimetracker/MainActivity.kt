@@ -51,7 +51,6 @@ class MainActivity : ComponentActivity() {
         db = AppDatabase.getInstance(this)
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
 
-        // Load projects on startup
         lifecycleScope.launch {
             db.projectDao().getActiveProjects().collect { projectList ->
                 projects.value = projectList
@@ -84,7 +83,6 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Dialog for unknown tag assignment
                     if (pendingTagUid.value != null) {
                         TagAssignmentDialog(
                             tagUid = pendingTagUid.value!!,
@@ -111,18 +109,21 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    // Dialog for creating new project
                     if (showNewProjectDialog.value) {
                         AlertDialog(
                             onDismissRequest = { showNewProjectDialog.value = false },
                             title = { Text("New project") },
                             text = {
-                                OutlinedTextField(
-                                    value = newProjectName.value,
-                                    onValueChange = { newProjectName.value = it },
-                                    label = { Text("Project name") },
-                                    singleLine = true
-                                )
+                                Column {
+                                    Text("Create a new project and assign the detected tag:")
+                                    Spacer(Modifier.height(16.dp))
+                                    OutlinedTextField(
+                                        value = newProjectName.value,
+                                        onValueChange = { newProjectName.value = it },
+                                        label = { Text("Project name") },
+                                        singleLine = true
+                                    )
+                                }
                             },
                             confirmButton = {
                                 TextButton(
@@ -277,6 +278,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProjectListScreen(
     projects: List<Project>,
@@ -331,7 +333,7 @@ fun ProjectListScreen(
                     onClick = { showCreateDialog = true },
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Default.Add, contentDescription = null)
+                    Icon(Icons.Default.Add, contentDescription = "New project")
                     Spacer(Modifier.width(8.dp))
                     Text("New project")
                 }
@@ -474,7 +476,7 @@ fun TagAssignmentDialog(
                 Text("Assign to existing project:")
             }
         },
-        buttons = {
+        confirmButton = {
             Column {
                 projects.forEach { project ->
                     TextButton(
@@ -490,12 +492,14 @@ fun TagAssignmentDialog(
                 ) {
                     Text("Create new project")
                 }
-                TextButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Skip (leave unassigned)")
-                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Skip")
             }
         }
     )
