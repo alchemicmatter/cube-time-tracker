@@ -5,8 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-// Database interamente locale: nessuna sincronizzazione, nessun
-// dato che lascia il dispositivo. File fisico in /data/data/<pkg>/databases/
+// Fully local database: no sync, no data ever leaves the device.
+// Physical file at /data/data/<pkg>/databases/
 @Database(
     entities = [Project::class, TagMapping::class, TimeSession::class],
     version = 1,

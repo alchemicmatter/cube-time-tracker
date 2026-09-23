@@ -9,14 +9,14 @@ import android.nfc.Tag
 import android.os.Build
 
 /**
- * Wrapper minimale sull'API NFC di Android.
- * Usa il "foreground dispatch": mentre MainActivity è in primo piano,
- * qualsiasi tag letto viene indirizzato qui, invece che al sistema
- * di intent-filter dichiarativi del manifest (più affidabile).
+ * Minimal wrapper around Android's NFC API.
+ * Uses "foreground dispatch": while MainActivity is in the foreground,
+ * any tag read is routed here instead of through the manifest's
+ * declarative intent filters (more reliable).
  *
- * Legge SOLO l'UID hardware del tag: nessuna scrittura, nessuna
- * dipendenza dal contenuto/formato del tag (funziona quindi anche
- * con tag NDEF, MIFARE Classic, bobine filamento riciclate, ecc.).
+ * Reads ONLY the tag's hardware UID: no writing, no dependency on
+ * the tag's content or format (this works with NDEF tags, MIFARE
+ * Classic, recycled filament spool chips, etc.).
  */
 class NfcHelper(private val activity: Activity) {
 
@@ -43,7 +43,7 @@ class NfcHelper(private val activity: Activity) {
         nfcAdapter?.disableForegroundDispatch(activity)
     }
 
-    /** Estrae l'UID del tag come stringa esadecimale, es. "04A23F91B280" */
+    /** Extracts the tag UID as a hex string, e.g. "04A23F91B280" */
     fun extractUid(intent: Intent): String? {
         val tag: Tag? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag::class.java)

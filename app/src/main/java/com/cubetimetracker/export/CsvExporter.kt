@@ -11,23 +11,23 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Esporta lo storico sessioni in un CSV locale, condivisibile via
- * il normale Intent.ACTION_SEND di Android (email, Drive personale
- * dell'utente, ecc.) — sempre per scelta esplicita dell'utente,
- * mai in automatico e mai verso un server dell'app.
+ * Exports the session history to a local CSV file, shareable via
+ * Android's standard Intent.ACTION_SEND (email, the user's own
+ * cloud drive, etc.) — always by explicit user choice, never
+ * automatically and never to an app-owned server.
  */
 object CsvExporter {
 
     fun export(context: Context, sessions: List<TimeSession>, projects: Map<Long, Project>): Uri? {
-        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.ITALY)
+        val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val file = File(context.cacheDir, "cube_time_export.csv")
 
         file.bufferedWriter().use { writer ->
-            writer.write("progetto,inizio,fine,durata_minuti\n")
+            writer.write("project,start,end,duration_minutes\n")
             sessions.forEach { s ->
-                val projectName = projects[s.projectId]?.name ?: "Sconosciuto"
+                val projectName = projects[s.projectId]?.name ?: "Unknown"
                 val start = fmt.format(Date(s.startEpochMillis))
-                val end = s.endEpochMillis?.let { fmt.format(Date(it)) } ?: "in corso"
+                val end = s.endEpochMillis?.let { fmt.format(Date(it)) } ?: "ongoing"
                 val durationMin = s.endEpochMillis?.let { (it - s.startEpochMillis) / 60000 } ?: 0
                 writer.write("\"$projectName\",$start,$end,$durationMin\n")
             }

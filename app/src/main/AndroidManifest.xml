@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Serve solo per leggere i tag: nessun permesso di rete richiesto -->
+    <!-- Only needed to read tags: no network permission required -->
     <uses-permission android:name="android.permission.NFC" />
     <uses-feature android:name="android.hardware.nfc" android:required="true" />
 
     <application
         android:allowBackup="true"
-        android:label="Cube Time Tracker"
+        android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.CubeTimeTracker"
         android:usesCleartextTraffic="false">
@@ -21,7 +21,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Intercetta qualsiasi tag NFC quando l'app è in primo piano -->
+            <!-- Catches any NFC tag while the app is in the foreground -->
             <intent-filter>
                 <action android:name="android.nfc.action.TAG_DISCOVERED" />
             </intent-filter>

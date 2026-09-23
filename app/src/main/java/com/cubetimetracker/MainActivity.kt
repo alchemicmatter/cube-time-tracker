@@ -19,9 +19,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var nfcHelper: NfcHelper
     private lateinit var db: AppDatabase
 
-    // Stato osservabile dalla UI: nome progetto attivo, se presente
+    // Observable UI state: name of the currently active project, if any
     private val activeProjectName = mutableStateOf<String?>(null)
-    private val lastEventMessage = mutableStateOf("In attesa di un tag...")
+    private val lastEventMessage = mutableStateOf("Waiting for a tag...")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,10 +61,10 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Cuore della logica: legge l'UID del tag, lo cerca nella mappatura
-     * locale, e fa toggle start/stop sul progetto corrispondente.
-     * Se il tag appoggiato non è mai stato visto prima, propone
-     * all'utente di associarlo a un progetto (fase di setup).
+     * Core logic: reads the tag's UID, looks it up in the local mapping,
+     * and toggles start/stop on the matching project. If the tag has
+     * never been seen before, it prompts the user to assign it to a
+     * project (setup step).
      */
     private fun handleIntentIfTag(intent: Intent) {
         val uid = nfcHelper.extractUid(intent) ?: return
@@ -73,8 +73,8 @@ class MainActivity : ComponentActivity() {
             val mapping = db.tagMappingDao().findByUid(uid)
 
             if (mapping == null) {
-                lastEventMessage.value = "Tag sconosciuto ($uid): assegnalo a un progetto"
-                // TODO: aprire TagSetupScreen precompilata con questo UID
+                lastEventMessage.value = "Unknown tag ($uid): assign it to a project"
+                // TODO: open TagSetupScreen pre-filled with this UID
                 return@launch
             }
 
@@ -83,24 +83,24 @@ class MainActivity : ComponentActivity() {
             val now = System.currentTimeMillis()
 
             when {
-                // Stesso tag riappoggiato mentre è già attivo -> ferma il timer
+                // Same tag tapped again while active -> stop the timer
                 openSession != null && openSession.projectId == mapping.projectId -> {
                     db.timeSessionDao().closeSession(openSession.id, now)
                     activeProjectName.value = null
-                    lastEventMessage.value = "Timer fermato: ${project?.name}"
+                    lastEventMessage.value = "Timer stopped: ${project?.name}"
                 }
-                // Un altro progetto era attivo -> lo chiude e ne apre uno nuovo
+                // A different project was active -> close it and start the new one
                 openSession != null -> {
                     db.timeSessionDao().closeSession(openSession.id, now)
                     db.timeSessionDao().insert(TimeSession(projectId = mapping.projectId, startEpochMillis = now))
                     activeProjectName.value = project?.name
-                    lastEventMessage.value = "Passato a: ${project?.name}"
+                    lastEventMessage.value = "Switched to: ${project?.name}"
                 }
-                // Nessun timer attivo -> ne apre uno nuovo
+                // No timer active -> start a new one
                 else -> {
                     db.timeSessionDao().insert(TimeSession(projectId = mapping.projectId, startEpochMillis = now))
                     activeProjectName.value = project?.name
-                    lastEventMessage.value = "Timer avviato: ${project?.name}"
+                    lastEventMessage.value = "Timer started: ${project?.name}"
                 }
             }
         }
@@ -122,12 +122,12 @@ fun MainScreen(
         Spacer(Modifier.height(16.dp))
 
         if (!nfcAvailable) {
-            Text("Questo dispositivo non ha NFC.")
+            Text("This device has no NFC.")
         } else if (!nfcEnabled) {
-            Text("NFC disattivato: abilitalo nelle impostazioni.")
+            Text("NFC is disabled: enable it in Settings.")
         } else {
             Text(
-                if (activeProjectName != null) "In corso: $activeProjectName" else "Nessun timer attivo"
+                if (activeProjectName != null) "Active: $activeProjectName" else "No timer running"
             )
             Spacer(Modifier.height(8.dp))
             Text(statusMessage, style = MaterialTheme.typography.bodyMedium)

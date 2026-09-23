@@ -1,63 +1,73 @@
 # Cube Time Tracker
 
-Un cubo fisico (o qualsiasi oggetto con un tag NFC per faccia) per avviare e
-fermare timer di progetti diversi appoggiandolo sul telefono. Nessun account,
-nessun server, nessun dato che lascia il dispositivo.
+A physical cube (or any object with one NFC tag per face) that starts and
+stops project timers when you tap it on your phone. No account, no server,
+no data ever leaves your device.
 
-## Come funziona
+## How it works
 
-1. Ogni faccia del cubo ha un tag NFC (anche riciclato: bobine filamento,
-   vecchie carte, badge dismessi — basta che il telefono ne legga l'UID).
-2. Alla prima scansione di un tag mai visto, l'app chiede a quale progetto
-   associarlo. Non si scrive mai nulla sul tag: si legge solo il suo
-   identificativo di fabbrica (UID).
-3. Alle scansioni successive, appoggiare il cubo avvia il timer sul progetto
-   associato a quella faccia, chiudendo automaticamente un eventuale timer
-   già aperto su un altro progetto. Riappoggiare la stessa faccia ferma il
-   timer.
-4. Tutti i dati (progetti, sessioni, mappature tag) restano in un database
-   SQLite locale (via Room) dentro l'app. L'export CSV è manuale e va sempre
-   condiviso a scelta dell'utente (email, Drive personale, ecc.).
+1. Each face of the cube has an NFC tag (recycled ones work too: filament
+   spool chips, old cards, decommissioned badges — as long as the phone
+   can read its UID).
+2. The first time an unknown tag is scanned, the app asks which project to
+   associate it with. Nothing is ever written to the tag: only its
+   factory-set identifier (UID) is read.
+3. On later scans, tapping the cube starts the timer for the project
+   linked to that face, automatically closing any timer already running
+   on a different project. Tapping the same face again stops the timer.
+4. All data (projects, sessions, tag mappings) stays in a local SQLite
+   database (via Room) inside the app. CSV export is manual and always
+   shared at the user's explicit choice (email, personal cloud drive, etc.).
 
-## Stato del progetto
+## Project status
 
-Scheletro funzionante iniziale:
-- Modello dati (Project, TagMapping, TimeSession) con Room
-- Lettura NFC via foreground dispatch (solo UID, nessuna scrittura)
-- Logica di toggle start/stop/switch tra progetti
-- Export CSV locale
-- Build automatica via GitHub Actions (vedi `.github/workflows/build.yml`)
+Working initial skeleton:
+- Data model (Project, TagMapping, TimeSession) with Room
+- NFC reading via foreground dispatch (UID only, no writing)
+- Start/stop/switch toggle logic between projects
+- Local CSV export
+- Automatic build via GitHub Actions (see `.github/workflows/build.yml`)
 
-Da completare (vedi Roadmap):
-- UI di gestione progetti e associazione tag (schermata di setup)
-- Schermata report/statistiche
-- File STL del cubo stampabile
-- Guida iOS via Apple Shortcuts
+Still to do (see Roadmap):
+- Project management and tag-assignment UI (setup screen)
+- Reports/statistics screen
+- 3D-printable cube STL file
+- iOS guide via Apple Shortcuts
 
-## Come ottenere l'APK
+## Where to get the APK
 
-Ogni push su `main` builda automaticamente un APK di debug tramite GitHub
-Actions. Vai nella scheda "Actions" del repository, apri l'ultima esecuzione
-del workflow "Build APK", e scarica l'artifact `cube-time-tracker-debug-apk`.
+Every push to `main` automatically builds a debug APK via GitHub Actions.
+Go to the repository's "Actions" tab, open the latest run of the
+"Build APK" workflow, scroll to the "Artifacts" section at the bottom of
+the run summary page, and download `cube-time-tracker-debug-apk`. It's a
+zip file containing `app-debug.apk` — unzip it, transfer the APK to your
+Android phone, and install it (you'll need to allow "install from unknown
+sources" for the app you use to open it).
 
-## Stack tecnico
+Note: GitHub Actions artifacts require being signed in to GitHub to
+download, and expire after 90 days by default. Once the app is stable, a
+tagged GitHub Release will be added so anyone can download a permanent APK
+without needing a GitHub account.
+
+## Tech stack
 
 - Kotlin + Jetpack Compose
-- Room (persistenza locale)
+- Room (local persistence)
 - Android NFC API (`NfcAdapter`, foreground dispatch)
-- Nessuna dipendenza di rete: `usesCleartextTraffic="false"`, nessun permesso Internet nel manifest
+- No network dependency: `usesCleartextTraffic="false"`, no Internet
+  permission in the manifest
 
-## Hardware suggerito
+## Suggested hardware
 
-- Cubo stampato in 3D (STL in `/hardware`, in arrivo)
-- 6 tag NFC qualsiasi (NTAG213/215 nuovi consigliati per semplicità,
-  ma va bene qualunque tag 13.56MHz che il telefono riesca a leggere)
+- 3D-printed cube (STL files in `/hardware`, coming soon)
+- 6 NFC tags of any kind (new NTAG213/215 tags are the simplest choice,
+  but any 13.56MHz tag the phone can read will work)
 
-## Licenza
+## License
 
-Codice: MIT. Design hardware (quando pubblicato): CC-BY-SA.
+Code: MIT. Hardware design (once published): CC-BY-SA.
 
 ## Privacy by design
 
-Questo progetto non ha backend, non raccoglie telemetria, non richiede
-account. Tutti i dati restano sul dispositivo dell'utente.
+This project has no backend, collects no telemetry, and requires no
+account. All data stays on the user's device.
