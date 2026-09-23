@@ -11,16 +11,18 @@ interface TimeSessionDao {
     @Insert
     suspend fun insert(session: TimeSession): Long
 
+    @Update
+    suspend fun update(session: TimeSession)
+
     @Query("UPDATE time_sessions SET endEpochMillis = :endMillis WHERE id = :id")
     suspend fun closeSession(id: Long, endMillis: Long)
+
+    @Query("DELETE FROM time_sessions WHERE id = :id")
+    suspend fun deleteSession(id: Long)
 
     @Query("SELECT * FROM time_sessions ORDER BY startEpochMillis DESC")
     fun getAllSessions(): Flow<List<TimeSession>>
 
-    @Query("""
-        SELECT * FROM time_sessions
-        WHERE startEpochMillis BETWEEN :fromMillis AND :toMillis
-        ORDER BY startEpochMillis DESC
-    """)
-    suspend fun getSessionsInRange(fromMillis: Long, toMillis: Long): List<TimeSession>
+    @Query("SELECT * FROM time_sessions WHERE projectId = :projectId ORDER BY startEpochMillis DESC")
+    fun getSessionsForProject(projectId: Long): Flow<List<TimeSession>>
 }

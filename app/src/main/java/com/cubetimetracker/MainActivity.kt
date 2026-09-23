@@ -1,10 +1,10 @@
 package com.cubetimetracker
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,7 +14,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
@@ -34,61 +33,56 @@ import com.cubetimetracker.nfc.NfcHelper
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
+
+private val RetroBackground = Color(0xFF080B0B)
+private val RetroPanel = Color(0xFF102C2C)
+private val RetroPanelAlt = Color(0xFF153A38)
+private val RetroMint = Color(0xFF5ED1B2)
+private val RetroText = Color(0xFFE8D7C4)
+private val RetroOrange = Color(0xFFFF9D70)
+private val RetroRed = Color(0xFFFF6B5E)
+private val RetroMuted = Color(0xFF8AA5A0)
+private val RetroFont = FontFamily.Monospace
 
 class MainActivity : ComponentActivity() {
-
     private lateinit var nfcHelper: NfcHelper
     private lateinit var db: AppDatabase
     private lateinit var vibrator: Vibrator
 
     private val activeProjectName = mutableStateOf<String?>(null)
     private val activeSessionStart = mutableStateOf<Long?>(null)
-    private val lastEventMessage = mutableStateOf("Waiting for a tag...")
-    private val currentScreen = mutableStateOf<String>("main")
+    private val lastEventMessage = mutableStateOf("WAITING FOR TAG...")
+    private val currentScreen = mutableStateOf("main")
     private val selectedProjectId = mutableStateOf<Long?>(null)
     private val projects = mutableStateOf<List<Project>>(emptyList())
     private val pendingTagUid = mutableStateOf<String?>(null)
     private val showNewProjectDialog = mutableStateOf(false)
     private val newProjectName = mutableStateOf("")
 
-    companion object {
-        private const val TAG = "CubeTimeTracker"
-        val retroFont = FontFamily.Monospace
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate called")
-
         nfcHelper = NfcHelper(this)
         db = AppDatabase.getInstance(this)
         vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
 
         lifecycleScope.launch {
-            db.projectDao().getActiveProjects().collect { projectList ->
-                projects.value = projectList
-                Log.d(TAG, "Loaded ${projectList.size} projects")
-            }
+            db.projectDao().getActiveProjects().collect { projects.value = it }
         }
 
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Color(0xFF00FF00),
-                    secondary = Color(0xFF00CC00),
-                    background = Color(0xFF0A0A0A),
-                    surface = Color(0xFF111111),
-                    onPrimary = Color.Black,
-                    onSecondary = Color.Black,
-                    onBackground = Color(0xFF00FF00),
-                    onSurface = Color(0xFF00FF00)
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0A)),
-                    color = Color(0xFF0A0A0A)
-                ) {
+            MaterialTheme(colorScheme = darkColorScheme(
+                primary = RetroMint,
+                secondary = RetroOrange,
+                background = RetroBackground,
+                surface = RetroPanel,
+                onPrimary = RetroBackground,
+                onSecondary = RetroBackground,
+                onBackground = RetroText,
+                onSurface = RetroText
+            )) {
+                Surface(Modifier.fillMaxSize(), color = RetroBackground) {
                     when (currentScreen.value) {
                         "main" -> MainScreen(
                             nfcAvailable = nfcHelper.isNfcAvailable(),
@@ -102,599 +96,225 @@ class MainActivity : ComponentActivity() {
                         "projects" -> ProjectListScreen(
                             projects = projects.value,
                             onNavigateBack = { currentScreen.value = "main" },
-                            onCreateProject = { name ->
-                                lifecycleScope.launch {
-                                    db.projectDao().insert(Project(name = name))
-                                    Log.i(TAG, "Created project: $name")
-                                }
-                            }
+                            onCreateProject = { name -> lifecycleScope.launch { db.projectDao().insert(Project(name = name)) } }
                         )
                         "reports" -> ReportsScreen(
                             projects = projects.value,
                             onNavigateBack = { currentScreen.value = "main" },
-                            onProjectSelected = { projectId ->
-                                selectedProjectId.value = projectId
-                                currentScreen.value = "sessions"
-                            }
+                            onProjectSelected = { id -> selectedProjectId.value = id; currentScreen.value = "sessions" }
                         )
-                        "sessions" -> {
-                            val projectId = selectedProjectId.value
-                            if (projectId != null) {
-                                SessionsListScreen(
-                                    projectId = projectId,
-                                    onNavigateBack = { currentScreen.value = "reports" },
-                                    onDeleteSession = { sessionId ->
-                                        lifecycleScope.launch {
-                                            db.timeSessionDao().let { dao ->
-                                                dao.getSessionsInRange(0, Long.MAX_VALUE)
-                                                    .collect { sessions ->
-                                                        sessions.find { it.id == sessionId }?.let {
-                                                            dao.closeSession(it.id, it.endEpochMillis ?: System.currentTimeMillis())
-                                                        }
-                                                    }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
+                        "sessions" -> selectedProjectId.value?.let { id ->
+                            SessionsListScreen(
+                                projectId = id,
+                                onNavigateBack = { currentScreen.value = "reports" }
+                            )
                         }
                     }
 
-                    if (pendingTagUid.value != null) {
+                    pendingTagUid.value?.let { uid ->
                         TagAssignmentDialog(
-                            tagUid = pendingTagUid.value!!,
+                            tagUid = uid,
                             projects = projects.value,
                             onDismiss = { pendingTagUid.value = null },
-                            onProjectSelected = { projectId ->
-                                lifecycleScope.launch {
-                                    db.tagMappingDao().upsert(
-                                        TagMapping(tagUid = pendingTagUid.value!!, projectId = projectId)
-                                    )
-                                    val project = db.projectDao().getById(projectId)
-                                    activeProjectName.value = project?.name
-                                    activeSessionStart.value = System.currentTimeMillis()
-                                    db.timeSessionDao().insert(
-                                        TimeSession(projectId = projectId, startEpochMillis = activeSessionStart.value!!)
-                                    )
-                                    lastEventMessage.value = "Tag assigned: ${project?.name}"
-                                    Log.i(TAG, "Tag ${pendingTagUid.value} assigned to $projectId")
-                                    pendingTagUid.value = null
-                                    vibrateSuccess()
-                                }
-                            },
+                            onProjectSelected = { projectId -> assignTagAndStart(uid, projectId) },
                             onCreateNewProject = { showNewProjectDialog.value = true }
                         )
                     }
 
                     if (showNewProjectDialog.value) {
                         AlertDialog(
-                            containerColor = Color(0xFF111111),
-                            titleContentColor = Color(0xFF00FF00),
-                            textContentColor = Color(0xFF00FF00),
+                            containerColor = RetroPanel,
                             onDismissRequest = { showNewProjectDialog.value = false },
-                            title = { Text("NEW PROJECT", fontFamily = retroFont, fontWeight = FontWeight.Bold) },
+                            title = { Text("NEW PROJECT", fontFamily = RetroFont, color = RetroMint) },
                             text = {
-                                Column {
-                                    OutlinedTextField(
-                                        value = newProjectName.value,
-                                        onValueChange = { newProjectName.value = it },
-                                        label = { Text("NAME", fontFamily = retroFont, fontSize = 12.sp) },
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = Color(0xFF00FF00),
-                                            unfocusedBorderColor = Color(0xFF00FF00),
-                                            focusedLabelColor = Color(0xFF00FF00),
-                                            unfocusedLabelColor = Color(0xFF00AA00)
-                                        ),
-                                        textStyle = LocalTextStyle.current.copy(fontFamily = retroFont, color = Color(0xFF00FF00)),
-                                        singleLine = true,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                }
+                                OutlinedTextField(
+                                    value = newProjectName.value,
+                                    onValueChange = { newProjectName.value = it },
+                                    label = { Text("NAME", fontFamily = RetroFont) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
                             },
                             confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        if (newProjectName.value.isNotBlank() && pendingTagUid.value != null) {
-                                            lifecycleScope.launch {
-                                                val newProject = Project(name = newProjectName.value)
-                                                val newId = db.projectDao().insert(newProject)
-                                                db.tagMappingDao().upsert(
-                                                    TagMapping(tagUid = pendingTagUid.value!!, projectId = newId)
-                                                )
-                                                activeProjectName.value = newProject.name
-                                                activeSessionStart.value = System.currentTimeMillis()
-                                                db.timeSessionDao().insert(
-                                                    TimeSession(projectId = newId, startEpochMillis = activeSessionStart.value!!)
-                                                )
-                                                lastEventMessage.value = "Created: ${newProject.name}"
-                                                Log.i(TAG, "Created: ${newProject.name}")
-                                                newProjectName.value = ""
-                                                pendingTagUid.value = null
-                                                showNewProjectDialog.value = false
-                                                vibrateSuccess()
-                                            }
-                                        }
-                                    },
-                                    enabled = newProjectName.value.isNotBlank()
-                                ) {
-                                    Text("CREATE", fontFamily = retroFont, fontWeight = FontWeight.Bold)
-                                }
+                                TextButton(enabled = newProjectName.value.isNotBlank(), onClick = {
+                                    val uid = pendingTagUid.value ?: return@TextButton
+                                    lifecycleScope.launch {
+                                        val id = db.projectDao().insert(Project(name = newProjectName.value.trim()))
+                                        db.tagMappingDao().upsert(TagMapping(uid, id))
+                                        startSession(id, newProjectName.value.trim())
+                                        pendingTagUid.value = null
+                                        newProjectName.value = ""
+                                        showNewProjectDialog.value = false
+                                    }
+                                }) { Text("CREATE", fontFamily = RetroFont, color = RetroMint) }
                             },
-                            dismissButton = {
-                                TextButton(onClick = { showNewProjectDialog.value = false }) {
-                                    Text("CANCEL", fontFamily = retroFont)
-                                }
-                            }
+                            dismissButton = { TextButton(onClick = { showNewProjectDialog.value = false }) { Text("CANCEL", fontFamily = RetroFont, color = RetroText) } }
                         )
                     }
                 }
             }
         }
-
         handleIntentIfTag(intent)
     }
 
-    override fun onResume() {
-        super.onResume()
-        nfcHelper.enableForegroundDispatch()
+    private fun assignTagAndStart(uid: String, projectId: Long) {
+        lifecycleScope.launch {
+            db.tagMappingDao().upsert(TagMapping(uid, projectId))
+            startSession(projectId, db.projectDao().getById(projectId)?.name)
+            pendingTagUid.value = null
+        }
     }
 
-    override fun onPause() {
-        super.onPause()
-        nfcHelper.disableForegroundDispatch()
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleIntentIfTag(intent)
+    private suspend fun startSession(projectId: Long, name: String?) {
+        val now = System.currentTimeMillis()
+        db.timeSessionDao().getOpenSession()?.let { db.timeSessionDao().closeSession(it.id, now) }
+        db.timeSessionDao().insert(TimeSession(projectId, now))
+        activeProjectName.value = name
+        activeSessionStart.value = now
+        lastEventMessage.value = "STARTED: ${name ?: "PROJECT"}"
+        vibrateSuccess()
     }
 
     private fun handleIntentIfTag(intent: Intent) {
-        val uid: String? = try {
-            nfcHelper.extractUid(intent)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error extracting UID", e)
-            lastEventMessage.value = "NFC error"
-            return
-        }
-
-        if (uid == null) return
-
+        val uid = runCatching { nfcHelper.extractUid(intent) }.getOrNull() ?: return
         lifecycleScope.launch {
             try {
                 val mapping = db.tagMappingDao().findByUid(uid)
-
                 if (mapping == null) {
                     pendingTagUid.value = uid
                     vibrateWarning()
                     return@launch
                 }
-
                 val project = db.projectDao().getById(mapping.projectId)
-                val openSession = db.timeSessionDao().getOpenSession()
+                val open = db.timeSessionDao().getOpenSession()
                 val now = System.currentTimeMillis()
-
-                when {
-                    openSession != null && openSession.projectId == mapping.projectId -> {
-                        db.timeSessionDao().closeSession(openSession.id, now)
-                        activeProjectName.value = null
-                        activeSessionStart.value = null
-                        lastEventMessage.value = "STOPPED: ${project?.name}"
-                        vibrateSuccess()
-                    }
-                    openSession != null -> {
-                        db.timeSessionDao().closeSession(openSession.id, now)
-                        db.timeSessionDao().insert(TimeSession(projectId = mapping.projectId, startEpochMillis = now))
-                        activeProjectName.value = project?.name
-                        activeSessionStart.value = now
-                        lastEventMessage.value = "SWITCH: ${project?.name}"
-                        vibrateSuccess()
-                    }
-                    else -> {
-                        db.timeSessionDao().insert(TimeSession(projectId = mapping.projectId, startEpochMillis = now))
-                        activeProjectName.value = project?.name
-                        activeSessionStart.value = now
-                        lastEventMessage.value = "STARTED: ${project?.name}"
-                        vibrateSuccess()
-                    }
+                if (open != null && open.projectId == mapping.projectId) {
+                    db.timeSessionDao().closeSession(open.id, now)
+                    activeProjectName.value = null
+                    activeSessionStart.value = null
+                    lastEventMessage.value = "STOPPED: ${project?.name}"
+                } else {
+                    open?.let { db.timeSessionDao().closeSession(it.id, now) }
+                    db.timeSessionDao().insert(TimeSession(mapping.projectId, now))
+                    activeProjectName.value = project?.name
+                    activeSessionStart.value = now
+                    lastEventMessage.value = "STARTED: ${project?.name}"
                 }
+                vibrateSuccess()
             } catch (e: Exception) {
-                Log.e(TAG, "Error", e)
-                lastEventMessage.value = "ERROR"
+                Log.e("CubeTimeTracker", "NFC handling error", e)
+                lastEventMessage.value = "ERROR READING TAG"
             }
         }
     }
 
-    private fun vibrateSuccess() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(50)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Vibration error", e)
-        }
-    }
+    override fun onResume() { super.onResume(); nfcHelper.enableForegroundDispatch() }
+    override fun onPause() { super.onPause(); nfcHelper.disableForegroundDispatch() }
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIntentIfTag(intent) }
 
-    private fun vibrateWarning() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(150)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Vibration error", e)
-        }
-    }
+    private fun vibrateSuccess() { runCatching { if (Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE)) else vibrator.vibrate(50) } }
+    private fun vibrateWarning() { runCatching { if (Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE)) else vibrator.vibrate(150) } }
 }
 
 @Composable
-fun MainScreen(
-    nfcAvailable: Boolean,
-    nfcEnabled: Boolean,
-    activeProjectName: String?,
-    activeSessionStart: Long?,
-    statusMessage: String,
-    onOpenProjects: () -> Unit,
-    onViewReports: () -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(20.dp)
-            .background(Color(0xFF0A0A0A)),
-        verticalArrangement = Arrangement.SpaceBetween
-    ) {
+private fun MainScreen(nfcAvailable: Boolean, nfcEnabled: Boolean, activeProjectName: String?, activeSessionStart: Long?, statusMessage: String, onOpenProjects: () -> Unit, onViewReports: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Column {
-            Text(
-                "CUBE TIME TRACKER",
-                fontFamily = MainActivity.retroFont,
-                fontWeight = FontWeight.Bold,
-                fontSize = 20.sp,
-                color = Color(0xFF00FF00)
-            )
-            Spacer(Modifier.height(20.dp))
-            TimerDisplay(startTimeMillis = activeSessionStart)
-            Spacer(Modifier.height(20.dp))
-            Text(
-                text = if (activeProjectName != null) "ACTIVE: $activeProjectName" else "NO TIMER",
-                fontFamily = MainActivity.retroFont,
-                fontSize = 14.sp,
-                color = Color(0xFF00FF00)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = statusMessage,
-                fontFamily = MainActivity.retroFont,
-                fontSize = 11.sp,
-                color = Color(0xFF00AA00)
-            )
+            Text("CUBE TIME", fontFamily = RetroFont, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = RetroMint)
+            Text("LOCAL TIME TRACKER", fontFamily = RetroFont, fontSize = 11.sp, color = RetroMuted)
+            Spacer(Modifier.height(24.dp))
+            TimerDisplay(activeSessionStart)
+            Spacer(Modifier.height(18.dp))
+            Text(if (activeProjectName != null) "ACTIVE / ${activeProjectName.uppercase()}" else "NO ACTIVE PROJECT", fontFamily = RetroFont, fontSize = 13.sp, color = RetroText)
+            Spacer(Modifier.height(6.dp))
+            Text(statusMessage, fontFamily = RetroFont, fontSize = 11.sp, color = RetroOrange)
         }
-
-        if (!nfcAvailable || !nfcEnabled) {
-            Text(
-                text = if (!nfcAvailable) "NO NFC" else "NFC OFF",
-                fontFamily = MainActivity.retroFont,
-                fontSize = 12.sp,
-                color = Color(0xFFFF0000)
-            )
-        }
-
-        Column(
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            RetroButton(text = "PROJECTS", onClick = onOpenProjects)
-            RetroButton(text = "REPORTS", onClick = onViewReports)
+        if (!nfcAvailable || !nfcEnabled) Text(if (!nfcAvailable) "NFC NOT AVAILABLE" else "NFC DISABLED", fontFamily = RetroFont, color = RetroRed, fontSize = 11.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            RetroButton("PROJECTS", onOpenProjects)
+            RetroButton("REPORTS", onViewReports)
         }
     }
 }
 
 @Composable
-fun RetroButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(48.dp)
-            .border(1.dp, Color(0xFF00FF00))
-            .background(Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = text,
-            fontFamily = MainActivity.retroFont,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            color = Color(0xFF00FF00)
-        )
+private fun RetroButton(text: String, onClick: () -> Unit) {
+    Box(Modifier.fillMaxWidth().height(48.dp).border(1.dp, RetroMint).background(RetroPanel).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(text, fontFamily = RetroFont, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = RetroMint)
     }
 }
 
 @Composable
-fun TimerDisplay(startTimeMillis: Long?, modifier: Modifier = Modifier) {
-    var elapsedSeconds by remember { mutableStateOf(0L) }
-    val isRunning = startTimeMillis != null
-
+private fun TimerDisplay(startTimeMillis: Long?) {
+    var elapsed by remember { mutableStateOf(0L) }
     LaunchedEffect(startTimeMillis) {
-        if (isRunning) {
-            while (true) {
-                elapsedSeconds = (System.currentTimeMillis() - startTimeMillis!!) / 1000
-                delay(1000)
-            }
-        } else {
-            elapsedSeconds = 0
-        }
+        while (startTimeMillis != null) { elapsed = (System.currentTimeMillis() - startTimeMillis) / 1000; delay(1000) }
+        elapsed = 0
     }
-
-    val hours = elapsedSeconds / 3600
-    val minutes = (elapsedSeconds % 3600) / 60
-    val seconds = elapsedSeconds % 60
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .border(2.dp, Color(0xFF00FF00))
-            .background(Color(0xFF111111))
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(
-            text = if (isRunning) "RUNNING" else "STOPPED",
-            fontFamily = MainActivity.retroFont,
-            fontSize = 12.sp,
-            color = if (isRunning) Color(0xFF00FF00) else Color(0xFF00AA00)
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = String.format("%02d:%02d:%02d", hours, minutes, seconds),
-            fontFamily = MainActivity.retroFont,
-            fontSize = 48.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isRunning) Color(0xFF00FF00) else Color(0xFF00AA00)
-        )
+    val h = elapsed / 3600; val m = (elapsed % 3600) / 60; val s = elapsed % 60
+    Column(Modifier.fillMaxWidth().border(2.dp, RetroMint).background(RetroPanel).padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(if (startTimeMillis == null) "STOPPED" else "RUNNING", fontFamily = RetroFont, fontSize = 11.sp, color = RetroOrange)
+        Text(String.format("%02d:%02d:%02d", h, m, s), fontFamily = RetroFont, fontSize = 42.sp, fontWeight = FontWeight.Bold, color = RetroMint)
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProjectListScreen(
-    projects: List<Project>,
-    onNavigateBack: () -> Unit,
-    onCreateProject: (String) -> Unit
-) {
-    var showCreateDialog by remember { mutableStateOf(false) }
-    var newProjectName by remember { mutableStateOf("") }
-
-    Scaffold(
-        containerColor = Color(0xFF0A0A0A),
-        topBar = {
-            TopAppBar(
-                title = { Text("PROJECTS", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF00FF00))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0A0A0A),
-                    titleContentColor = Color(0xFF00FF00),
-                    navigationIconContentColor = Color(0xFF00FF00)
-                )
-            )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(projects, key = { it.id }) { project ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .border(1.dp, Color(0xFF00FF00))
-                        .background(Color(0xFF111111))
-                        .clickable { },
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = project.name,
-                        fontFamily = MainActivity.retroFont,
-                        fontSize = 14.sp,
-                        color = Color(0xFF00FF00),
-                        modifier = Modifier.padding(start = 16.dp)
-                    )
-                }
-            }
-
-            item {
-                RetroButton(text = "+ NEW PROJECT", onClick = { showCreateDialog = true })
-            }
+private fun ProjectListScreen(projects: List<Project>, onNavigateBack: () -> Unit, onCreateProject: (String) -> Unit) {
+    var dialog by remember { mutableStateOf(false) }; var name by remember { mutableStateOf("") }
+    Scaffold(containerColor = RetroBackground, topBar = { RetroTopBar("PROJECTS", onNavigateBack) }) { pad ->
+        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(projects, key = { it.id }) { p -> RetroListItem(p.name) }
+            item { RetroButton("+ NEW PROJECT") { dialog = true } }
         }
     }
-
-    if (showCreateDialog) {
-        AlertDialog(
-            containerColor = Color(0xFF111111),
-            titleContentColor = Color(0xFF00FF00),
-            textContentColor = Color(0xFF00FF00),
-            onDismissRequest = { showCreateDialog = false },
-            title = { Text("NEW PROJECT", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold) },
-            text = {
-                OutlinedTextField(
-                    value = newProjectName,
-                    onValueChange = { newProjectName = it },
-                    label = { Text("NAME", fontFamily = MainActivity.retroFont, fontSize = 12.sp) },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF00FF00),
-                        unfocusedBorderColor = Color(0xFF00FF00),
-                        focusedLabelColor = Color(0xFF00FF00),
-                        unfocusedLabelColor = Color(0xFF00AA00)
-                    ),
-                    textStyle = LocalTextStyle.current.copy(fontFamily = MainActivity.retroFont, color = Color(0xFF00FF00)),
-                    singleLine = true
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        if (newProjectName.isNotBlank()) {
-                            onCreateProject(newProjectName)
-                            newProjectName = ""
-                            showCreateDialog = false
-                        }
-                    },
-                    enabled = newProjectName.isNotBlank()
-                ) {
-                    Text("CREATE", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCreateDialog = false }) {
-                    Text("CANCEL", fontFamily = MainActivity.retroFont)
-                }
-            }
-        )
-    }
+    if (dialog) RetroTextDialog("NEW PROJECT", "NAME", name, { name = it }, { if (name.isNotBlank()) { onCreateProject(name.trim()); name = ""; dialog = false } }, { dialog = false })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReportsScreen(
-    projects: List<Project>,
-    onNavigateBack: () -> Unit,
-    onProjectSelected: (Long) -> Unit
-) {
-    Scaffold(
-        containerColor = Color(0xFF0A0A0A),
-        topBar = {
-            TopAppBar(
-                title = { Text("REPORTS", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF00FF00))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0A0A0A),
-                    titleContentColor = Color(0xFF00FF00),
-                    navigationIconContentColor = Color(0xFF00FF00)
-                )
-            )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            items(projects, key = { it.id }) { project ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .border(1.dp, Color(0xFF00FF00))
-                        .background(Color(0xFF111111))
-                        .clickable { onProjectSelected(project.id) },
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    Text(
-                        text = project.name,
-                        fontFamily = MainActivity.retroFont,
-                        fontSize = 14.sp,
-                        color = Color(0xFF00FF00),
-                        modifier = Modifier.padding(start = 16.dp)
-                    )
-                }
+private fun ReportsScreen(projects: List<Project>, onNavigateBack: () -> Unit, onProjectSelected: (Long) -> Unit) {
+    Scaffold(containerColor = RetroBackground, topBar = { RetroTopBar("REPORTS", onNavigateBack) }) { pad ->
+        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            items(projects, key = { it.id }) { p ->
+                RetroListItem(p.name) { onProjectSelected(p.id) }
             }
         }
     }
 }
 
+@Composable
+private fun RetroListItem(text: String, onClick: () -> Unit = {}) {
+    Box(Modifier.fillMaxWidth().height(56.dp).border(1.dp, RetroMint).background(RetroPanel).clickable(onClick = onClick).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+        Text(text.uppercase(), fontFamily = RetroFont, fontSize = 13.sp, color = RetroText)
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SessionsListScreen(
-    projectId: Long,
-    onNavigateBack: () -> Unit,
-    onDeleteSession: (Long) -> Unit
-) {
-    val viewModel: SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
-    val sessions by viewModel.getSessionsForProject(projectId).collectAsState(initial = emptyList())
-    val project by viewModel.getProject(projectId).collectAsState(initial = null)
-    val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
+private fun RetroTopBar(title: String, onBack: () -> Unit) {
+    TopAppBar(title = { Text(title, fontFamily = RetroFont, fontWeight = FontWeight.Bold) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") } }, colors = TopAppBarDefaults.topAppBarColors(containerColor = RetroBackground, titleContentColor = RetroMint, navigationIconContentColor = RetroMint))
+}
 
-    Scaffold(
-        containerColor = Color(0xFF0A0A0A),
-        topBar = {
-            TopAppBar(
-                title = { Text(project?.name ?: "SESSIONS", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold) },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color(0xFF00FF00))
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color(0xFF0A0A0A),
-                    titleContentColor = Color(0xFF00FF00),
-                    navigationIconContentColor = Color(0xFF00FF00)
-                )
-            )
-        }
-    ) { paddingValues ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SessionsListScreen(projectId: Long, onNavigateBack: () -> Unit) {
+    val vm: com.cubetimetracker.ui.SessionsViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val sessions by vm.sessionsForProject(projectId).collectAsState(initial = emptyList())
+    val project by vm.project(projectId).collectAsState(initial = null)
+    val format = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US) }
+    Scaffold(containerColor = RetroBackground, topBar = { RetroTopBar(project?.name?.uppercase() ?: "SESSIONS", onNavigateBack) }) { pad ->
+        LazyColumn(Modifier.fillMaxSize().padding(pad).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(sessions, key = { it.id }) { session ->
-                val durationMin = session.endEpochMillis?.let { (it - session.startEpochMillis) / 60000 } ?: 0
-                val startTime = dateFormat.format(Date(session.startEpochMillis))
-                val endTime = session.endEpochMillis?.let { dateFormat.format(Date(it)) } ?: "ongoing"
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, Color(0xFF00FF00))
-                        .background(Color(0xFF111111))
-                        .padding(16.dp)
-                ) {
+                val end = session.endEpochMillis
+                val duration = ((end ?: System.currentTimeMillis()) - session.startEpochMillis) / 60000
+                Box(Modifier.fillMaxWidth().border(1.dp, RetroMint).background(RetroPanel).padding(14.dp)) {
                     Column {
-                        Text(
-                            text = "$startTime → $endTime",
-                            fontFamily = MainActivity.retroFont,
-                            fontSize = 11.sp,
-                            color = Color(0xFF00AA00)
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            text = "DURATION: ${durationMin} min",
-                            fontFamily = MainActivity.retroFont,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF00FF00)
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.End,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            IconButton(
-                                onClick = { onDeleteSession(session.id) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color(0xFFFF0000))
-                            }
+                        Text(format.format(Date(session.startEpochMillis)), fontFamily = RetroFont, fontSize = 11.sp, color = RetroMuted)
+                        Text(if (end == null) "ONGOING" else "END ${format.format(Date(end))}", fontFamily = RetroFont, fontSize = 11.sp, color = RetroOrange)
+                        Text("DURATION ${duration} MIN", fontFamily = RetroFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = RetroText)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            IconButton(onClick = { LaunchedEffect(session.id) { vm.deleteSession(session.id) } }) { Icon(Icons.Default.Delete, "Delete", tint = RetroRed) }
                         }
                     }
                 }
@@ -704,54 +324,12 @@ fun SessionsListScreen(
 }
 
 @Composable
-fun TagAssignmentDialog(
-    tagUid: String,
-    projects: List<Project>,
-    onDismiss: () -> Unit,
-    onProjectSelected: (Long) -> Unit,
-    onCreateNewProject: () -> Unit
-) {
-    AlertDialog(
-        containerColor = Color(0xFF111111),
-        titleContentColor = Color(0xFF00FF00),
-        textContentColor = Color(0xFF00FF00),
-        onDismissRequest = onDismiss,
-        title = { Text("TAG DETECTED", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold) },
-        text = {
-            Column {
-                Text("UID: $tagUid", fontFamily = MainActivity.retroFont, fontSize = 11.sp)
-                Spacer(Modifier.height(16.dp))
-                Text("ASSIGN TO:", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-        },
-        confirmButton = {
-            Column(
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                projects.forEach { project ->
-                    TextButton(
-                        onClick = { onProjectSelected(project.id) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(project.name, fontFamily = MainActivity.retroFont, fontSize = 12.sp)
-                    }
-                }
-                OutlinedButton(
-                    onClick = onCreateNewProject,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFF00FF00)
-                    ),
-                    border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFF00FF00)))
-                ) {
-                    Text("+ NEW", fontFamily = MainActivity.retroFont, fontWeight = FontWeight.Bold)
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("SKIP", fontFamily = MainActivity.retroFont)
-            }
-        }
-    )
+private fun TagAssignmentDialog(tagUid: String, projects: List<Project>, onDismiss: () -> Unit, onProjectSelected: (Long) -> Unit, onCreateNewProject: () -> Unit) {
+    AlertDialog(containerColor = RetroPanel, onDismissRequest = onDismiss, title = { Text("TAG DETECTED", fontFamily = RetroFont, color = RetroMint) }, text = { Column { Text("UID: $tagUid", fontFamily = RetroFont, fontSize = 10.sp, color = RetroMuted); Spacer(Modifier.height(12.dp)); Text("ASSIGN TO:", fontFamily = RetroFont, color = RetroText) } }, confirmButton = { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) { projects.forEach { p -> TextButton(onClick = { onProjectSelected(p.id) }, modifier = Modifier.fillMaxWidth()) { Text(p.name.uppercase(), fontFamily = RetroFont, color = RetroMint) } }; OutlinedButton(onClick = onCreateNewProject, modifier = Modifier.fillMaxWidth()) { Text("+ NEW", fontFamily = RetroFont, color = RetroMint) } } }, dismissButton = { TextButton(onClick = onDismiss) { Text("SKIP", fontFamily = RetroFont, color = RetroText) } })
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RetroTextDialog(title: String, label: String, value: String, onValueChange: (String) -> Unit, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(containerColor = RetroPanel, onDismissRequest = onDismiss, title = { Text(title, fontFamily = RetroFont, color = RetroMint) }, text = { OutlinedTextField(value, onValueChange, label = { Text(label, fontFamily = RetroFont) }, singleLine = true, modifier = Modifier.fillMaxWidth()) }, confirmButton = { TextButton(onClick = onConfirm, enabled = value.isNotBlank()) { Text("CREATE", fontFamily = RetroFont, color = RetroMint) } }, dismissButton = { TextButton(onClick = onDismiss) { Text("CANCEL", fontFamily = RetroFont, color = RetroText) } })
 }

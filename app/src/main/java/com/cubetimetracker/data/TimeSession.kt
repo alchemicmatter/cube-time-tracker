@@ -8,5 +8,5 @@ data class TimeSession(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val projectId: Long,
     val startEpochMillis: Long,
-    val endEpochMillis: Long? = null // null = session still running
+    val endEpochMillis: Long? = null
 )
