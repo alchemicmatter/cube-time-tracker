@@ -2,9 +2,9 @@ package com.cubetimetracker.ui
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
-import com.cubetimetracker.ProjectSummary
 import com.cubetimetracker.data.AppDatabase
 import com.cubetimetracker.data.Project
+import com.cubetimetracker.data.ProjectSummary
 import com.cubetimetracker.data.TimeSession
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
