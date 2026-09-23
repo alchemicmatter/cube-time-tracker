@@ -49,7 +49,10 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui-tooling-preview")
-
+    
+    // Jetpack Compose ViewModel
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.2")
+    
     // Room (local database, no remote data)
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
