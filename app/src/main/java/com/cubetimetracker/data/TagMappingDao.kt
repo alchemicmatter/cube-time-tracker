@@ -1,6 +1,7 @@
 package com.cubetimetracker.data
 
 import androidx.room.*
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TagMappingDao {
@@ -11,8 +12,14 @@ interface TagMappingDao {
     suspend fun upsert(mapping: TagMapping)
 
     @Query("SELECT * FROM tag_mappings")
-    suspend fun getAll(): List<TagMapping>
+    fun getAll(): Flow<List<TagMapping>>
+
+    @Query("SELECT * FROM tag_mappings WHERE projectId = :projectId")
+    fun getForProject(projectId: Long): Flow<List<TagMapping>>
 
     @Query("DELETE FROM tag_mappings WHERE tagUid = :uid")
     suspend fun delete(uid: String)
+
+    @Query("DELETE FROM tag_mappings WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
 }

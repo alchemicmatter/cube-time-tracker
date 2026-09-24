@@ -20,6 +20,9 @@ interface TimeSessionDao {
     @Query("DELETE FROM time_sessions WHERE id = :id")
     suspend fun deleteSession(id: Long)
 
+    @Query("DELETE FROM time_sessions WHERE projectId = :projectId")
+    suspend fun deleteForProject(projectId: Long)
+
     @Query("SELECT * FROM time_sessions ORDER BY startEpochMillis DESC")
     fun getAllSessions(): Flow<List<TimeSession>>
 
