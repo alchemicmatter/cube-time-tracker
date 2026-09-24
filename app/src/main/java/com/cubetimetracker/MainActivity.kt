@@ -768,9 +768,12 @@ private fun TagAssignmentDialog(
             Text("ASSIGN TO:", fontFamily = Exo2, fontWeight = FontWeight.Black, fontSize = 11.sp, color = DeviceText)
             Spacer(Modifier.height(4.dp))
             projects.forEach { project ->
-                DeviceTextAction(project.name.uppercase()) {
-                    onProjectSelected(project.id)
-                }
+                DeviceTextAction(
+                    text = project.name.uppercase(),
+                    onClick = {
+                        onProjectSelected(project.id)
+                    }
+                )
             }
             DeviceOutlineAction("+ NEW PROJECT", onCreateNewProject)
         },
