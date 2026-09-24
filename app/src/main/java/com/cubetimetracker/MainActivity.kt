@@ -1010,7 +1010,13 @@ private fun DeviceDialog(
         onDismissRequest = onDismiss,
         title = { Text(title, fontFamily = Exo2, fontWeight = FontWeight.Black, color = DevicePrimary) },
         text = { Column(content = content) },
-        confirmButton = { DeviceTextAction(confirmText, onConfirm, destructive) },
+        confirmButton = {
+            DeviceTextAction(
+                text = confirmText,
+                onClick = onConfirm,
+                destructive = destructive
+            )
+        },
         dismissButton = if (dismissText == null) null else {
             { DeviceTextAction(dismissText, onDismissAction ?: onDismiss) }
         }
